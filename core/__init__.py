@@ -1,0 +1,1 @@
+"""SwarmFi core — AXL client, message schema, agent registry."""

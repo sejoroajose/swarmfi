@@ -4,6 +4,6 @@
   "Listen": [],
   "api_port": 9012,
   "tcp_port": 7001,
-  "max_message_size": 1048576,
-  "max_concurrent_conns": 64
+  "router_addr": "127.0.0.1",
+  "router_port": 9013
 }

@@ -16,10 +16,10 @@ health:
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 test-unit:
-	pytest tests/ -m unit -v
+	python3 -m pytest tests/ -m unit -v
 
 test-integration: health
-	pytest tests/ -m integration -v
+	python3 -m pytest tests/ -m integration -v
 
 test: test-unit test-integration
 

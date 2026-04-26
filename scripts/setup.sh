@@ -18,7 +18,8 @@ check_prereqs() {
     info "Checking prerequisites…"
     command -v go    >/dev/null 2>&1 || error "Go is not installed. See https://go.dev/dl/"
     command -v git   >/dev/null 2>&1 || error "git is required"
-    command -v python3 >/dev/null 2>&1 || error "Python 3.10+ is required"
+    { command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1; } \
+    || error "Python 3.10+ is required"
 
     GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
     REQUIRED="1.25"
@@ -79,7 +80,20 @@ generate_keys() {
 # ── python deps ──────────────────────────────────────────────────────────────
 install_python_deps() {
     info "Installing Python dependencies…"
-    python3 -m pip install --quiet -e ".[dev]"
+    # Windows Git Bash uses 'python', Linux/macOS use 'python3'
+    PYTHON_BIN=""
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    else
+        error "Python not found. Install Python 3.10+ and ensure it is on your PATH."
+    fi
+    info "Using Python: $($PYTHON_BIN --version)"
+    $PYTHON_BIN -m pip install --quiet \
+      httpx pydantic anyio tenacity structlog python-dotenv rich \
+      pytest pytest-asyncio respx \
+      --break-system-packages
     info "Python deps installed."
 }
 

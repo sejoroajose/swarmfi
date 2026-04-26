@@ -53,6 +53,21 @@ start_node() {
     info "  ✓ $NAME is healthy (PID $(cat "$PID_FILE"))"
 }
 
+start_mcp_router() {
+    local NAME=$1
+    local PORT=$2
+    local PID_FILE="$PIDS_DIR/${NAME}_mcp.pid"
+
+    info "Starting $NAME MCP router (port=$PORT)…"
+    pushd "$REPO_ROOT" >/dev/null
+    python3 -m mcp_routing.mcp_router --port "$PORT" \
+        > "$LOGS_DIR/${NAME}_mcp.log" 2>&1 &
+    echo $! > "$PID_FILE"
+    popd >/dev/null
+    sleep 1
+    info "  ✓ $NAME MCP router running (PID $(cat "$PID_FILE"))"
+}
+
 info "=== Starting SwarmFi AXL nodes ==="
 
 # Researcher first — it is the hub that risk + executor peer to
@@ -63,6 +78,10 @@ sleep 1
 
 start_node "risk"       "$CONFIGS_DIR/risk.json"       "9012"
 start_node "executor"   "$CONFIGS_DIR/executor.json"   "9022"
+
+start_mcp_router "researcher" "9003"
+start_mcp_router "risk"       "9013"
+start_mcp_router "executor"   "9023"
 
 info ""
 info "All nodes running. Topology:"

@@ -83,7 +83,19 @@ jobs:
           chmod +x scripts/*.sh
           bash scripts/start_nodes.sh
           echo "Waiting for mesh to form..."
-          sleep 5
+          # Poll until routing coords are populated (up to 30s)
+          for i in $(seq 1 30); do
+            COORDS=$(curl -sf http://127.0.0.1:9002/topology \
+              | python3 -c "
+              import sys, json
+              d = json.load(sys.stdin)
+              coords = [p.get('coords') for p in d.get('peers', [])]
+              print('ready' if any(c for c in coords) else 'waiting')
+              " 2>/dev/null || echo "waiting")
+            echo "Attempt $i: $COORDS"
+            [[ "$COORDS" == "ready" ]] && break
+            sleep 1
+          done
 
       - name: Verify nodes are healthy
         run: bash scripts/health_check.sh

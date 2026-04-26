@@ -1,0 +1,126 @@
+name: SwarmFi CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main, "feat/stage-*"]
+
+jobs:
+  # ── Job 1: Unit tests — no AXL nodes needed ───────────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install httpx pydantic anyio tenacity structlog \
+                      python-dotenv rich pytest pytest-asyncio respx
+
+      - name: Run unit tests
+        run: python3 -m pytest tests/ -m unit -v --tb=short
+
+  # ── Job 2: Integration tests — real AXL nodes on Linux ───────────────────
+  integration-tests:
+    name: Integration Tests (Live AXL Mesh)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go 1.25
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.5"
+          cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          pip install httpx pydantic anyio tenacity structlog \
+                      python-dotenv rich pytest pytest-asyncio respx
+
+      - name: Install OpenSSL (for ed25519 key generation)
+        run: sudo apt-get install -y openssl
+
+      - name: Build AXL binary
+        run: |
+          git clone --depth 1 https://github.com/gensyn-ai/axl.git axl/axl-repo
+          cd axl/axl-repo
+          go build -o ../../axl/node ./cmd/node/
+          echo "AXL binary built: $(ls -lh ../../axl/node)"
+
+      - name: Generate agent keys
+        run: |
+          mkdir -p axl/keys
+          for AGENT in researcher risk executor; do
+            openssl genpkey -algorithm ed25519 -out axl/keys/${AGENT}.pem
+            chmod 600 axl/keys/${AGENT}.pem
+            echo "Generated key for $AGENT"
+          done
+
+      - name: Grant AXL network capabilities
+        run: sudo setcap cap_net_admin+eip axl/node
+
+      - name: Start AXL nodes
+        run: |
+          chmod +x scripts/*.sh
+          bash scripts/start_nodes.sh
+          echo "Waiting for mesh to form..."
+          sleep 5
+
+      - name: Verify nodes are healthy
+        run: bash scripts/health_check.sh
+
+      - name: Verify send works between nodes
+        run: |
+          RISK_KEY=$(curl -sf http://127.0.0.1:9012/topology \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['our_public_key'])")
+          echo "Risk pubkey: $RISK_KEY"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST http://127.0.0.1:9002/send \
+            -H "X-Destination-Peer-Id: $RISK_KEY" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "smoke-test")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+
+          echo "Response: $BODY (HTTP $HTTP_CODE)"
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "FAIL: /send returned $HTTP_CODE"
+            cat axl/logs/researcher.log
+            exit 1
+          fi
+          echo "PASS: /send returned 200"
+
+      - name: Run integration tests
+        run: python3 -m pytest tests/ -m integration -v --tb=short
+
+      - name: Upload node logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: axl-logs
+          path: axl/logs/
+          retention-days: 3
+
+      - name: Stop nodes
+        if: always()
+        run: bash scripts/stop_nodes.sh

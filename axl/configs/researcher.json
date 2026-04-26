@@ -1,0 +1,9 @@
+{
+  "PrivateKeyPath": "axl/keys/researcher.pem",
+  "Peers": [],
+  "Listen": ["tls://127.0.0.1:9001"],
+  "api_port": 9002,
+  "tcp_port": 7000,
+  "max_message_size": 1048576,
+  "max_concurrent_conns": 64
+}

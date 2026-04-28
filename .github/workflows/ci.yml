@@ -7,17 +7,14 @@ on:
     branches: [main, "feat/stage-*"]
 
 jobs:
-  # ── Job 1: Unit tests — no AXL nodes, no 0G network ──────────────────────
+  # ── Job 1: All unit tests ─────────────────────────────────────────────────
   unit-tests:
-    name: Unit Tests
+    name: Unit Tests (Stages 1–4)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
@@ -27,31 +24,27 @@ jobs:
           pip install httpx pydantic anyio tenacity structlog \
                       python-dotenv rich pytest pytest-asyncio respx
 
-      - name: Run unit tests (Stage 1 + Stage 2)
+      - name: Run all unit tests
         run: python3 -m pytest tests/ -m unit -v --tb=short
 
-  # ── Job 2: Integration tests — real AXL mesh ─────────────────────────────
+  # ── Job 2: AXL mesh integration ───────────────────────────────────────────
   integration-axl:
-    name: Integration Tests (Live AXL Mesh)
+    name: Integration Tests (AXL Mesh)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Go 1.25
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.25.5"
           cache: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install Python dependencies
+      - name: Install Python deps
         run: |
           pip install httpx pydantic anyio tenacity structlog \
                       python-dotenv rich pytest pytest-asyncio respx
@@ -59,9 +52,7 @@ jobs:
       - name: Build AXL binary
         run: |
           git clone --depth 1 https://github.com/gensyn-ai/axl.git axl/axl-repo
-          cd axl/axl-repo
-          go build -o ../../axl/node ./cmd/node/
-          echo "AXL binary: $(ls -lh ../../axl/node)"
+          go build -C axl/axl-repo -o ../../axl/node ./cmd/node/
 
       - name: Generate agent keys
         run: |
@@ -74,32 +65,29 @@ jobs:
       - name: Grant AXL network capabilities
         run: sudo setcap cap_net_admin+eip axl/node
 
-      - name: Start AXL nodes
+      - name: Start nodes and wait for mesh
         run: |
           chmod +x scripts/*.sh
           bash scripts/start_nodes.sh
-          echo "Waiting for mesh to settle..."
-          # Poll until coords are populated (up to 30s)
           for i in $(seq 1 30); do
             COORDS=$(curl -sf http://127.0.0.1:9002/topology \
               | python3 -c "
-                import sys, json
-                d = json.load(sys.stdin)
-                coords = [p.get('coords') for p in d.get('peers', [])]
-                print('ready' if any(c for c in coords) else 'waiting')
+                import sys,json
+                d=json.load(sys.stdin)
+                print('ready' if any(p.get('coords') for p in d.get('peers',[])) else 'waiting')
                 " 2>/dev/null || echo "waiting")
             echo "Attempt $i: $COORDS"
             [[ "$COORDS" == "ready" ]] && break
             sleep 1
           done
 
-      - name: Verify nodes are healthy
+      - name: Health check
         run: bash scripts/health_check.sh
 
       - name: Run AXL integration tests
         run: python3 -m pytest tests/test_connectivity.py -m integration -v --tb=short
 
-      - name: Upload node logs on failure
+      - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -111,32 +99,57 @@ jobs:
         if: always()
         run: bash scripts/stop_nodes.sh
 
-  # ── Job 3: 0G Storage integration — requires funded testnet wallet ────────
+  # ── Job 3: 0G Storage integration ────────────────────────────────────────
   integration-0g:
     name: Integration Tests (0G Testnet)
     runs-on: ubuntu-latest
-    # Only runs when ZG_PRIVATE_KEY secret is configured in the repo
-    if: ${{ vars.RUN_0G_TESTS == 'true' || github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-
+    if: vars.RUN_0G_TESTS == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          pip install httpx pydantic anyio tenacity structlog \
-                      python-dotenv rich pytest pytest-asyncio respx \
-                      web3 eth-account
-
-      - name: Run 0G storage integration tests
+      - name: Install deps
+        run: pip install httpx pydantic anyio tenacity structlog python-dotenv rich pytest pytest-asyncio respx web3 eth-account
+      - name: Run 0G integration tests
         env:
           ZG_PRIVATE_KEY: ${{ secrets.ZG_PRIVATE_KEY }}
-        run: |
-          python3 -m pytest tests/test_storage_integration.py \
-            -m integration -v --tb=short
+        run: python3 -m pytest tests/test_storage_integration.py -m integration -v --tb=short
+
+  # ── Job 4: Uniswap API integration ────────────────────────────────────────
+  integration-uniswap:
+    name: Integration Tests (Uniswap API)
+    runs-on: ubuntu-latest
+    if: vars.RUN_UNISWAP_TESTS == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install deps
+        run: pip install httpx pydantic anyio tenacity structlog python-dotenv rich pytest pytest-asyncio respx
+      - name: Run Uniswap integration tests
+        env:
+          UNISWAP_API_KEY: ${{ secrets.UNISWAP_API_KEY }}
+          WALLET_ADDRESS:  ${{ secrets.WALLET_ADDRESS }}
+        run: python3 -m pytest tests/test_uniswap_integration.py -m integration -v --tb=short
+
+  # ── Job 5: KeeperHub integration ──────────────────────────────────────────
+  integration-keeperhub:
+    name: Integration Tests (KeeperHub)
+    runs-on: ubuntu-latest
+    if: vars.RUN_KEEPERHUB_TESTS == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install deps
+        run: pip install httpx pydantic anyio tenacity structlog python-dotenv rich pytest pytest-asyncio respx
+      - name: Run KeeperHub integration tests
+        env:
+          KEEPERHUB_API_KEY: ${{ secrets.KEEPERHUB_API_KEY }}
+        run: python3 -m pytest tests/test_keeperhub_integration.py -m integration -v --tb=short

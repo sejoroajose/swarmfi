@@ -1,0 +1,11 @@
+{
+  "name": "zg-sidecar",
+  "version": "1.0.0",
+  "description": "0G Storage sidecar for SwarmFi",
+  "type": "module",
+  "main": "sidecar.mjs",
+  "dependencies": {
+    "@0gfoundation/0g-ts-sdk": "^1.2.6",
+    "ethers": "^6.13.0"
+  }
+}

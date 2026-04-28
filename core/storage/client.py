@@ -2,74 +2,78 @@
 core/storage/client.py
 0G Storage client for SwarmFi.
 
-Design decisions:
-  - Uses the 0G testnet indexer REST API directly via httpx (no TypeScript
-    subprocess, no fragile Python SDK version pinning)
-  - KV semantics are implemented on top of 0G file storage:
-      write(key, value) → upload bytes → record {key: root_hash} in a
-      local manifest that is itself uploaded to 0G
-  - All uploads are signed EIP-712 transactions to the Flow contract
-  - In offline/test mode (no private key) the client uses an in-memory
-    store so unit tests never need network access
+Architecture
+============
+Live mode  (ZG_PRIVATE_KEY set):
+    Delegates to a Node.js sidecar script (zg-sidecar/sidecar.mjs) that
+    wraps @0gfoundation/0g-ts-sdk — the official TypeScript SDK maintained
+    by 0G Labs.  This sidesteps the broken Python SDK entirely: the Python
+    SDK (0g-storage-sdk) installs as the top-level package name 'core',
+    which directly collides with SwarmFi's own 'core' package.
 
-Network config (Galileo testnet):
-  EVM_RPC   = https://evmrpc-testnet.0g.ai
-  INDEXER   = https://indexer-storage-testnet-turbo.0g.ai
-  FLOW_ADDR = 0x22E03a6A89B950F1c82ec5e74F8eCa321a105296
-  CHAIN_ID  = 16602
+    The sidecar is a plain Node.js ESM script — no build step, no binary,
+    just `node zg-sidecar/sidecar.mjs upload|download`.
+
+Offline mode (no ZG_PRIVATE_KEY):
+    Falls back to an in-memory SHA-256-keyed store so all unit tests run
+    without network access or Node.js.
+
+Sidecar protocol
+================
+    upload:   echo <raw bytes> | node sidecar.mjs upload --key <hex> [--evm <url>] [--indexer <url>]
+              stdout → {"rootHash":"0x...","txHash":"0x..."}
+
+    download: node sidecar.mjs download --root <0xhash> [--indexer <url>]
+              stdout → raw bytes
+
+Setup
+=====
+    cd zg-sidecar && npm install
+    (scripts/setup.sh does this automatically)
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-import httpx
 import structlog
-from tenacity import (
-    AsyncRetrying,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 log = structlog.get_logger(__name__)
 
-# ── Network constants ─────────────────────────────────────────────────────────
+# ── Network defaults ──────────────────────────────────────────────────────────
 
-ZG_EVM_RPC      = "https://evmrpc-testnet.0g.ai"
-ZG_INDEXER_RPC  = "https://indexer-storage-testnet-turbo.0g.ai"
-ZG_FLOW_ADDRESS = "0x22E03a6A89B950F1c82ec5e74F8eCa321a105296"
-ZG_CHAIN_ID     = 16602
+ZG_EVM_RPC     = "https://evmrpc-testnet.0g.ai"
+ZG_INDEXER_RPC = "https://indexer-storage-testnet-turbo.0g.ai"
 
-_REQUEST_TIMEOUT = 30.0
+# Path to the Node.js sidecar script:
+#   repo/core/storage/client.py  →  repo/zg-sidecar/sidecar.mjs
+_REPO_ROOT    = Path(__file__).parent.parent.parent
+_SIDECAR_DIR  = _REPO_ROOT / "zg-sidecar"
+_SIDECAR_MJS  = _SIDECAR_DIR / "sidecar.mjs"
 
 
-# ── Upload / download result types ───────────────────────────────────────────
+# ── Result type ───────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class UploadResult:
-    root_hash: str
-    tx_hash:   str | None = None
+    root_hash:  str
+    tx_hash:    str | None = None
     size_bytes: int = 0
 
 
-@dataclass
-class StorageNode:
-    url:    str
-    trusted: bool = True
-
-
-# ── In-memory store for offline / test mode ───────────────────────────────────
+# ── In-memory store (offline / unit-test mode) ────────────────────────────────
 
 class _InMemoryStore:
     """
-    Drop-in replacement used when ZG_PRIVATE_KEY is not set.
-    Stores bytes in a dict keyed by sha256 root hash.
-    Behaviorally identical to the real client from callers' perspective.
+    Used when ZG_PRIVATE_KEY is not set.
+    Keyed by SHA-256 of the uploaded bytes — same round-trip contract as live.
     """
 
     def __init__(self) -> None:
@@ -78,12 +82,12 @@ class _InMemoryStore:
     async def upload(self, data: bytes) -> UploadResult:
         root = hashlib.sha256(data).hexdigest()
         self._store[root] = data
-        size = len(data)
-        log.debug("in-memory upload", root=root[:16] + "…", bytes=size)
-        return UploadResult(root_hash=root, tx_hash=None, size_bytes=size)
+        log.debug("in-memory upload", root=root[:16] + "…", bytes=len(data))
+        return UploadResult(root_hash=root, size_bytes=len(data))
 
     async def download(self, root_hash: str) -> bytes:
-        data = self._store.get(root_hash)
+        key  = root_hash.removeprefix("0x")
+        data = self._store.get(key) or self._store.get(root_hash)
         if data is None:
             raise KeyError(f"Root hash not found in memory store: {root_hash!r}")
         log.debug("in-memory download", root=root_hash[:16] + "…")
@@ -93,28 +97,17 @@ class _InMemoryStore:
         self._store.clear()
 
 
-# ── Real 0G client ────────────────────────────────────────────────────────────
+# ── Live 0G client (delegates to Node.js sidecar) ────────────────────────────
 
 class _ZeroGStorageClient:
     """
-    Async client that talks to the 0G testnet indexer and storage nodes.
+    Calls `node zg-sidecar/sidecar.mjs` for all storage operations.
 
-    Requires:
-      - ZG_PRIVATE_KEY env var (hex-encoded 32-byte key, with or without 0x)
-      - web3 and eth_account packages (installed by setup.sh)
-
-    Upload flow:
-      1. Discover storage nodes from indexer
-      2. Compute Merkle root of data locally
-      3. Submit Flow contract transaction on-chain
-      4. Upload data segments to storage nodes
-      5. Return root hash
-
-    Download flow:
-      1. Query indexer for node that has the root hash
-      2. Fetch raw segments from storage node
-      3. Verify Merkle proof
-      4. Return reassembled bytes
+    Why Node.js instead of the Python SDK?
+    The Python SDK (0g-storage-sdk==0.3.0) installs its packages under the
+    top-level name 'core', which directly shadows SwarmFi's own 'core'
+    package.  There is no sys.path trick that fixes a same-name collision.
+    The TypeScript SDK has no Python namespace at all.
     """
 
     def __init__(
@@ -122,137 +115,87 @@ class _ZeroGStorageClient:
         private_key: str,
         evm_rpc:     str = ZG_EVM_RPC,
         indexer_rpc: str = ZG_INDEXER_RPC,
-        flow_address: str = ZG_FLOW_ADDRESS,
-        chain_id:    int = ZG_CHAIN_ID,
+        sidecar_mjs: Path = _SIDECAR_MJS,
     ) -> None:
-        # Lazy import — keeps startup fast for offline mode
         from eth_account import Account
-        from web3 import Web3
-
-        self._w3 = Web3(Web3.HTTPProvider(evm_rpc))
         pk = private_key if private_key.startswith("0x") else f"0x{private_key}"
-        self._account = Account.from_key(pk)
-        self._indexer_rpc  = indexer_rpc
-        self._flow_address = flow_address
-        self._chain_id     = chain_id
-        self._http: httpx.AsyncClient | None = None
-        log.info(
-            "0G client initialised",
-            address=self._account.address,
-            chain_id=chain_id,
+        self._account     = Account.from_key(pk)
+        self._private_key = private_key.removeprefix("0x")
+        self._evm_rpc     = evm_rpc
+        self._indexer_rpc = indexer_rpc
+        self._sidecar     = sidecar_mjs
+        self._validate()
+        log.info("0G client initialised", address=self._account.address)
+
+    def _validate(self) -> None:
+        if not self._sidecar.exists():
+            raise FileNotFoundError(
+                f"0G sidecar not found at {self._sidecar}.\n"
+                "Run:  cd zg-sidecar && npm install\n"
+                "Or:   ./scripts/setup.sh"
+            )
+        node_modules = self._sidecar.parent / "node_modules" / "@0gfoundation"
+        if not node_modules.exists():
+            raise FileNotFoundError(
+                f"Node modules missing at {node_modules.parent}.\n"
+                "Run:  cd zg-sidecar && npm install"
+            )
+
+    def _run(self, args: list[str], stdin: bytes | None = None) -> bytes:
+        """Run the sidecar synchronously (via asyncio.to_thread). Returns stdout."""
+        cmd = ["node", str(self._sidecar), *args]
+        result = subprocess.run(
+            cmd,
+            input=stdin,
+            capture_output=True,
+            timeout=180,
+            cwd=str(self._sidecar.parent),   # so relative node_modules resolves
         )
-
-    async def __aenter__(self) -> "_ZeroGStorageClient":
-        self._http = httpx.AsyncClient(timeout=_REQUEST_TIMEOUT)
-        return self
-
-    async def __aexit__(self, *_: object) -> None:
-        if self._http:
-            await self._http.aclose()
-
-    @property
-    def address(self) -> str:
-        return self._account.address
-
-    def _retrying(self) -> AsyncRetrying:
-        return AsyncRetrying(
-            retry=retry_if_exception_type((httpx.ConnectError, httpx.TimeoutException)),
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=1, max=8),
-            reraise=True,
-        )
-
-    async def _select_nodes(self) -> list[StorageNode]:
-        """Ask the indexer for live storage nodes."""
-        assert self._http is not None
-        async for attempt in self._retrying():
-            with attempt:
-                resp = await self._http.get(f"{self._indexer_rpc}/nodes/discover")
-                resp.raise_for_status()
-
-        nodes_data = resp.json()
-        nodes = [
-            StorageNode(url=n["url"], trusted=n.get("trusted", True))
-            for n in nodes_data.get("nodes", [])
-            if n.get("url")
-        ]
-        if not nodes:
-            raise RuntimeError("No storage nodes returned by indexer")
-        log.debug("storage nodes selected", count=len(nodes))
-        return nodes
+        if result.returncode != 0:
+            stderr = result.stderr.decode(errors="replace").strip()
+            raise RuntimeError(f"zg-sidecar failed:\n{stderr}")
+        return result.stdout
 
     async def upload(self, data: bytes) -> UploadResult:
-        """
-        Upload raw bytes to 0G Storage.
-        Returns UploadResult with root_hash for later retrieval.
-        """
-        assert self._http is not None
-        nodes = await self._select_nodes()
-
-        # Submit to first available node's upload endpoint
-        node_url = nodes[0].url.rstrip("/")
-        async for attempt in self._retrying():
-            with attempt:
-                resp = await self._http.post(
-                    f"{node_url}/api/store",
-                    content=data,
-                    headers={"Content-Type": "application/octet-stream"},
-                )
-                resp.raise_for_status()
-
-        result = resp.json()
-        root_hash = result.get("root") or result.get("rootHash") or result.get("root_hash")
-        tx_hash   = result.get("txHash") or result.get("tx_hash")
-
-        if not root_hash:
-            raise ValueError(f"Upload response missing root hash: {result}")
-
-        log.info(
-            "0G upload complete",
-            root=root_hash[:16] + "…",
-            size=len(data),
-            tx=tx_hash,
-        )
+        args = [
+            "upload",
+            "--key",     self._private_key,
+            "--evm",     self._evm_rpc,
+            "--indexer", self._indexer_rpc,
+        ]
+        raw    = await asyncio.to_thread(self._run, args, data)
+        # Strip any console.log noise the SDK emits — take only the last JSON line
+        lines  = [l for l in raw.decode(errors="replace").splitlines() if l.strip()]
+        result = json.loads(lines[-1])
+        root   = result.get("rootHash", "")
+        if not root:
+            raise RuntimeError(f"Upload returned no rootHash: {result}")
+        log.info("0G upload complete", root=root[:18] + "…")
         return UploadResult(
-            root_hash=root_hash,
-            tx_hash=tx_hash,
+            root_hash=root,
+            tx_hash=result.get("txHash") or None,
             size_bytes=len(data),
         )
 
     async def download(self, root_hash: str) -> bytes:
-        """
-        Download raw bytes from 0G Storage by root hash.
-        """
-        assert self._http is not None
-        nodes = await self._select_nodes()
-        node_url = nodes[0].url.rstrip("/")
-
-        async for attempt in self._retrying():
-            with attempt:
-                resp = await self._http.get(
-                    f"{node_url}/api/file",
-                    params={"root": root_hash},
-                )
-                resp.raise_for_status()
-
-        log.info("0G download complete", root=root_hash[:16] + "…")
-        return resp.content
+        root = root_hash if root_hash.startswith("0x") else f"0x{root_hash}"
+        args = [
+            "download",
+            "--root",    root,
+            "--indexer", self._indexer_rpc,
+        ]
+        data = await asyncio.to_thread(self._run, args, None)
+        log.info("0G download complete", root=root[:18] + "…", bytes=len(data))
+        return data
 
 
 # ── Unified public interface ──────────────────────────────────────────────────
 
 class ZeroGClient:
     """
-    Public interface for Stage 2.
-
-    Automatically selects online or offline backend:
-      - If ZG_PRIVATE_KEY env var is set  → real 0G testnet
-      - Otherwise                          → in-memory store (for dev / CI)
-
-    Usage:
-        async with ZeroGClient.from_env() as client:
-            result = await client.upload(b"hello")
-            data   = await client.download(result.root_hash)
+    Auto-selects backend:
+      ZG_PRIVATE_KEY set  →  real 0G testnet via Node.js sidecar
+      not set             →  in-memory store (unit tests / CI)
     """
 
     def __init__(self, backend: _ZeroGStorageClient | _InMemoryStore) -> None:
@@ -263,25 +206,24 @@ class ZeroGClient:
     def from_env(cls) -> "ZeroGClient":
         pk = os.getenv("ZG_PRIVATE_KEY", "").strip()
         if pk:
-            log.info("0G client: live testnet mode")
-            return cls(_ZeroGStorageClient(private_key=pk))
-        else:
-            log.info("0G client: offline/in-memory mode (set ZG_PRIVATE_KEY for testnet)")
-            return cls(_InMemoryStore())
+            log.info("0G client: live testnet mode (Node.js sidecar)")
+            return cls(_ZeroGStorageClient(
+                private_key=pk,
+                evm_rpc=os.getenv("ZG_EVM_RPC", ZG_EVM_RPC),
+                indexer_rpc=os.getenv("ZG_INDEXER_RPC", ZG_INDEXER_RPC),
+            ))
+        log.info("0G client: offline/in-memory mode (set ZG_PRIVATE_KEY for testnet)")
+        return cls(_InMemoryStore())
 
     @property
     def is_live(self) -> bool:
-        """True when connected to real 0G testnet."""
         return self._is_live
 
     async def __aenter__(self) -> "ZeroGClient":
-        if isinstance(self._backend, _ZeroGStorageClient):
-            await self._backend.__aenter__()
         return self
 
-    async def __aexit__(self, *args: object) -> None:
-        if isinstance(self._backend, _ZeroGStorageClient):
-            await self._backend.__aexit__(*args)
+    async def __aexit__(self, *_: object) -> None:
+        pass
 
     async def upload(self, data: bytes) -> UploadResult:
         return await self._backend.upload(data)
@@ -290,15 +232,11 @@ class ZeroGClient:
         return await self._backend.download(root_hash)
 
     async def upload_json(self, obj: Any) -> UploadResult:
-        """Serialise a dict/list to JSON bytes and upload."""
         return await self.upload(json.dumps(obj).encode("utf-8"))
 
     async def download_json(self, root_hash: str) -> Any:
-        """Download and deserialise JSON."""
-        raw = await self.download(root_hash)
-        return json.loads(raw.decode("utf-8"))
+        return json.loads((await self.download(root_hash)).decode("utf-8"))
 
     def reset_memory_store(self) -> None:
-        """Test helper — clears the in-memory store between tests."""
         if isinstance(self._backend, _InMemoryStore):
             self._backend.reset()

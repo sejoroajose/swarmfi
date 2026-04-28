@@ -30,9 +30,8 @@ skip_without_key = pytest.mark.skipif(
 )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 async def live_client():
-    """Single live ZeroGClient shared across all integration tests."""
     client = ZeroGClient.from_env()
     assert client.is_live, "Expected live client but got in-memory mode"
     async with client:

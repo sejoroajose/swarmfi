@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SwarmFi — Live Dashboard</title>
+<style>
+  :root {
+    --bg: #0d0f14; --surface: #161b24; --border: #232a36;
+    --text: #e2e8f0; --muted: #64748b; --accent: #3b82f6;
+    --green: #22c55e; --yellow: #eab308; --red: #ef4444; --purple: #a855f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  header h1 span { color: var(--accent); }
+  .status-pill { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  @media(max-width:768px){ .grid{grid-template-columns:1fr;} }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .card-title { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .agent-name { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .agent-ens  { font-size: 11px; color: var(--purple); margin-bottom: 12px; }
+
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 500; }
+  .badge-idle      { background: #1e293b; color: var(--muted); }
+  .badge-scanning  { background: #1e3a5f; color: #60a5fa; }
+  .badge-deciding  { background: #2d1f5e; color: #c084fc; }
+  .badge-executing { background: #1a3a2a; color: #4ade80; }
+  .badge-error     { background: #3b1a1a; color: #f87171; }
+
+  .metric-row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .metric-label { font-size: 11px; color: var(--muted); }
+  .metric-value { font-size: 13px; font-weight: 500; font-family: 'SF Mono', monospace; }
+
+  .risk-bar { margin-top: 12px; }
+  .risk-bar-track { height: 6px; border-radius: 99px; background: var(--border); overflow: hidden; margin-top: 4px; }
+  .risk-bar-fill  { height: 100%; border-radius: 99px; transition: width .5s ease; }
+
+  /* Log table */
+  .log-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .log-card h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { font-size: 11px; color: var(--muted); text-align: left; padding: 0 12px 10px 0; font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
+  td { padding: 8px 12px 8px 0; border-top: 1px solid var(--border); font-size: 12px; vertical-align: top; }
+  tr:first-child td { border-top: none; }
+
+  .evt-market_signal  { color: #60a5fa; }
+  .evt-risk_decision  { color: #c084fc; }
+  .evt-trade_executed { color: #4ade80; }
+  .evt-trade_failed   { color: #f87171; }
+  .evt-agent_started  { color: var(--muted); }
+  .evt-agent_stopped  { color: var(--muted); }
+  .evt-state_updated  { color: var(--muted); }
+  .evt-error          { color: #f87171; }
+
+  .empty { text-align: center; color: var(--muted); padding: 40px; }
+  .version { font-size: 11px; color: var(--muted); text-align: right; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Swarm<span>Fi</span> Live Dashboard</h1>
+  <div class="status-pill">
+    <div class="pulse" id="pulse"></div>
+    <span id="last-update">connecting…</span>
+  </div>
+</header>
+
+<main>
+  <div class="grid" id="agent-grid">
+    <div class="card"><div class="empty">Loading…</div></div>
+    <div class="card"><div class="empty">Loading…</div></div>
+    <div class="card"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="log-card">
+    <h2>Swarm History</h2>
+    <div id="log-container"><div class="empty">No events yet</div></div>
+  </div>
+  <div class="version" id="version-row"></div>
+</main>
+
+<script>
+const ROLES = ['researcher', 'risk', 'executor'];
+const ENS = {
+  researcher: 'researcher.swarmfi.eth',
+  risk:       'risk.swarmfi.eth',
+  executor:   'executor.swarmfi.eth',
+};
+
+function riskColor(score) {
+  if (score <= 3) return '#22c55e';
+  if (score <= 6) return '#eab308';
+  return '#ef4444';
+}
+
+function shortHash(h) {
+  return h ? h.slice(0, 8) + '…' + h.slice(-6) : '—';
+}
+
+function renderAgents(agents) {
+  const grid = document.getElementById('agent-grid');
+  grid.innerHTML = ROLES.map(role => {
+    const a = agents[role] || {};
+    const status  = a.status || 'idle';
+    const score   = a.last_risk_score;
+    const signal  = a.last_signal || {};
+    const tx      = a.last_tx_hash;
+
+    const scoreHtml = role === 'risk' && score != null ? `
+      <div class="risk-bar">
+        <div class="metric-label">Risk Score: ${score.toFixed(1)} / 10</div>
+        <div class="risk-bar-track">
+          <div class="risk-bar-fill" style="width:${score*10}%;background:${riskColor(score)}"></div>
+        </div>
+      </div>` : '';
+
+    const signalHtml = signal.token_in ? `
+      <div class="metric-row">
+        <span class="metric-label">Signal</span>
+        <span class="metric-value">${signal.token_in} → ${signal.token_out}</span>
+      </div>
+      <div class="metric-row">
+        <span class="metric-label">Strength</span>
+        <span class="metric-value">${signal.signal || '—'}</span>
+      </div>` : '';
+
+    const txHtml = tx ? `
+      <div class="metric-row">
+        <span class="metric-label">Last Tx</span>
+        <span class="metric-value">${shortHash(tx)}</span>
+      </div>` : '';
+
+    return `
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">${role}</span>
+          <span class="badge badge-${status}">${status}</span>
+        </div>
+        <div class="agent-name">${role.charAt(0).toUpperCase() + role.slice(1)}</div>
+        <div class="agent-ens">${ENS[role]}</div>
+        ${scoreHtml}${signalHtml}${txHtml}
+      </div>`;
+  }).join('');
+}
+
+function renderLog(entries) {
+  const container = document.getElementById('log-container');
+  if (!entries || entries.length === 0) {
+    container.innerHTML = '<div class="empty">No events yet</div>';
+    return;
+  }
+  container.innerHTML = `<table>
+    <thead><tr>
+      <th>Time</th><th>Event</th><th>Agent</th><th>Details</th>
+    </tr></thead>
+    <tbody>${entries.slice().reverse().map(e => {
+      const t = new Date(e.timestamp).toLocaleTimeString();
+      const cls = `evt-${e.event_type}`;
+      const details = Object.entries(e.data || {})
+        .filter(([k]) => !['status','agent_role'].includes(k))
+        .slice(0, 3)
+        .map(([k,v]) => `${k}: ${typeof v === 'number' ? v.toFixed ? v.toFixed(2) : v : String(v).slice(0,20)}`)
+        .join(' · ') || '—';
+      return `<tr>
+        <td style="color:var(--muted);white-space:nowrap">${t}</td>
+        <td class="${cls}">${e.event_type}</td>
+        <td>${e.agent_role}</td>
+        <td style="color:var(--muted)">${details}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+async function poll() {
+  try {
+    const [stateRes, logRes] = await Promise.all([
+      fetch('/api/state'),
+      fetch('/api/log'),
+    ]);
+    const state = await stateRes.json();
+    const log   = await logRes.json();
+
+    renderAgents(state.agents || {});
+    renderLog(log);
+
+    document.getElementById('last-update').textContent =
+      'Updated ' + new Date().toLocaleTimeString();
+    document.getElementById('version-row').textContent =
+      `State version: ${state.version || 0}`;
+    document.getElementById('pulse').style.background = 'var(--green)';
+  } catch(e) {
+    document.getElementById('last-update').textContent = 'Connection error';
+    document.getElementById('pulse').style.background = 'var(--red)';
+  }
+}
+
+poll();
+setInterval(poll, 3000);
+</script>
+</body>
+</html>

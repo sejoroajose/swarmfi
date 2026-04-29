@@ -55,6 +55,18 @@ function readStdin() {
   });
 }
 
+async function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms/1000}s`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function cmdUpload(args) {
   const privKeyRaw = args.key;
   if (!privKeyRaw) fatal('--key is required');
@@ -80,7 +92,11 @@ async function cmdUpload(args) {
   let lastErr = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     process.stderr.write(`[zg-sidecar] upload attempt ${attempt}/3\n`);
-    const [result, err] = await indexer.upload(memData, evmRpc, signer, uploadOpts);
+    const [result, err] = await withTimeout(
+      indexer.upload(memData, evmRpc, signer, uploadOpts),
+      180_000,   
+      `upload attempt ${attempt}`
+    );
 
     // ── Treat "already exists" as success ────────────────────────────────────
     const alreadyExists = err !== null &&

@@ -167,9 +167,9 @@ class _ZeroGStorageClient:
             cmd,
             input=stdin,
             capture_output=True,
-            timeout=600,
+            timeout=1800,
             cwd=str(self._sidecar.parent),
-            text=False,                    # Keep as bytes (safer for binary download)
+            text=False,                    
         )
         if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()

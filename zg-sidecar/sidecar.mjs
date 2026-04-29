@@ -81,7 +81,14 @@ async function cmdUpload(args) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     process.stderr.write(`[zg-sidecar] upload attempt ${attempt}/3\n`);
     const [result, err] = await indexer.upload(memData, evmRpc, signer, uploadOpts);
-    if (err === null && result) {
+
+    // ── Treat "already exists" as success ────────────────────────────────────
+    const alreadyExists = err !== null &&
+      (err.message?.toLowerCase().includes('already') ||
+       err.message?.toLowerCase().includes('exist') ||
+       err.message?.toLowerCase().includes('duplicate'));
+
+    if ((err === null || alreadyExists) && result) {
       let rootHash, txHash;
       if ('rootHash' in result) {
         rootHash = result.rootHash;
@@ -90,10 +97,13 @@ async function cmdUpload(args) {
         rootHash = result.rootHashes[0];
         txHash   = result.txHashes[0];
       }
-      // ONLY thing written to stdout — clean JSON, nothing else
-      process.stdout.write(JSON.stringify({ rootHash, txHash }) + '\n');
+      if (alreadyExists) {
+        process.stderr.write(`[zg-sidecar] data already on 0G, returning existing root\n`);
+      }
+      process.stdout.write(JSON.stringify({ rootHash, txHash: txHash ?? null }) + '\n');
       return;
     }
+
     lastErr = err;
     if (attempt < 3) {
       process.stderr.write(`[zg-sidecar] attempt ${attempt} failed: ${err?.message} — retrying in ${3*attempt}s\n`);
@@ -107,19 +117,48 @@ async function cmdDownload(args) {
   const root = args.root;
   if (!root) fatal('--root is required');
   const indexerRpc = args.indexer || INDEXER_RPC;
+  const maxAttempts = parseInt(args.retries ?? '8', 10);
+  const baseDelay   = parseInt(args.delay   ?? '5000', 10);  // ms
 
   const rootHash = root.startsWith('0x') ? root : `0x${root}`;
   const tmpPath  = join(tmpdir(), `zg-dl-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
 
   const indexer = new Indexer(indexerRpc);
-  const dlErr   = await indexer.download(rootHash, tmpPath, false);
-  if (dlErr !== null) fatal(`download failed: ${dlErr.message}`);
 
-  const bytes = readFileSync(tmpPath);
-  try { unlinkSync(tmpPath); } catch (_) {}
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    process.stderr.write(`[zg-sidecar] download attempt ${attempt}/${maxAttempts}\n`);
 
-  // Write raw bytes to stdout — no newline, no JSON wrapper
-  process.stdout.write(bytes);
+    const dlErr = await indexer.download(rootHash, tmpPath, false);
+
+    if (dlErr === null) {
+      const bytes = readFileSync(tmpPath);
+      try { unlinkSync(tmpPath); } catch (_) {}
+      process.stdout.write(bytes);
+      return;
+    }
+
+    lastErr = dlErr;
+    const msg = dlErr.message ?? String(dlErr);
+
+    // Only retry on propagation-related errors
+    const isNotFound = msg.toLowerCase().includes('no locations') ||
+                       msg.toLowerCase().includes('0 locations') ||
+                       msg.toLowerCase().includes('not found');
+
+    if (!isNotFound) {
+      // Hard failure — no point retrying
+      fatal(`download failed: ${msg}`);
+    }
+
+    if (attempt < maxAttempts) {
+      const wait = baseDelay * attempt;
+      process.stderr.write(`[zg-sidecar] not yet propagated, retrying in ${wait/1000}s: ${msg}\n`);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+
+  fatal(`download failed after ${maxAttempts} attempts: ${lastErr?.message}`);
 }
 
 const [,, cmd, ...rest] = process.argv;

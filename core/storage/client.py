@@ -52,11 +52,35 @@ log = structlog.get_logger(__name__)
 ZG_EVM_RPC     = "https://evmrpc-testnet.0g.ai"
 ZG_INDEXER_RPC = "https://indexer-storage-testnet-turbo.0g.ai"
 
+# 0G storage nodes won't replicate sub-segment payloads. Uploads below this
+# size submit the flow tx successfully but storage nodes never pick up the
+# segments, leaving the file permanently at 0 locations and undownloadable.
+_ZG_MIN_UPLOAD_BYTES = 256
+
 # Path to the Node.js sidecar script:
 #   repo/core/storage/client.py  →  repo/zg-sidecar/sidecar.mjs
 _REPO_ROOT    = Path(__file__).parent.parent.parent
 _SIDECAR_DIR  = _REPO_ROOT / "zg-sidecar"
 _SIDECAR_MJS  = _SIDECAR_DIR / "sidecar.mjs"
+
+
+def _frame(data: bytes) -> bytes:
+    """Prepend 4-byte length, then pad total to _ZG_MIN_UPLOAD_BYTES."""
+    framed = len(data).to_bytes(4, "big") + data
+    if len(framed) < _ZG_MIN_UPLOAD_BYTES:
+        framed = framed.ljust(_ZG_MIN_UPLOAD_BYTES, b"\x00")
+    return framed
+
+def _unframe(data: bytes) -> bytes:
+    """Extract original payload using the 4-byte length prefix."""
+    if len(data) < 4:
+        return data  # unframed legacy data — return as-is
+    length = int.from_bytes(data[:4], "big")
+    payload = data[4:4 + length]
+    if len(payload) != length:
+        # Corrupted or legacy unframed data — return raw
+        return data
+    return payload
 
 
 # ── Result type ───────────────────────────────────────────────────────────────
@@ -71,11 +95,6 @@ class UploadResult:
 # ── In-memory store (offline / unit-test mode) ────────────────────────────────
 
 class _InMemoryStore:
-    """
-    Used when ZG_PRIVATE_KEY is not set.
-    Keyed by SHA-256 of the uploaded bytes — same round-trip contract as live.
-    """
-
     def __init__(self) -> None:
         self._store: dict[str, bytes] = {}
 
@@ -142,19 +161,26 @@ class _ZeroGStorageClient:
             )
 
     def _run(self, args: list[str], stdin: bytes | None = None) -> bytes:
-        """Run the sidecar synchronously (via asyncio.to_thread). Returns stdout."""
+        """Run the sidecar synchronously (via asyncio.to_thread). Returns stdout as bytes."""
         cmd = ["node", str(self._sidecar), *args]
         result = subprocess.run(
             cmd,
             input=stdin,
             capture_output=True,
-            timeout=180,
-            cwd=str(self._sidecar.parent),   # so relative node_modules resolves
+            timeout=600,
+            cwd=str(self._sidecar.parent),
+            text=False,                    # Keep as bytes (safer for binary download)
         )
         if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
-            raise RuntimeError(f"zg-sidecar failed:\n{stderr}")
-        return result.stdout
+            stdout = result.stdout.decode(errors="replace").strip()
+            raise RuntimeError(
+                f"zg-sidecar failed (code {result.returncode}):\n"
+                f"CMD: {' '.join(cmd)}\n"
+                f"STDOUT:\n{stdout}\n"
+                f"STDERR:\n{stderr}"
+            )
+        return result.stdout   # already bytes
 
     async def upload(self, data: bytes) -> UploadResult:
         args = [
@@ -196,6 +222,13 @@ class ZeroGClient:
     Auto-selects backend:
       ZG_PRIVATE_KEY set  →  real 0G testnet via Node.js sidecar
       not set             →  in-memory store (unit tests / CI)
+
+    Padding contract
+    ----------------
+    All uploads are padded to _ZG_MIN_UPLOAD_BYTES with null bytes.
+    All downloads strip trailing null bytes before returning.
+    This is safe because every stored value is JSON/UTF-8 text, which
+    never legitimately ends in \\x00.
     """
 
     def __init__(self, backend: _ZeroGStorageClient | _InMemoryStore) -> None:
@@ -226,10 +259,11 @@ class ZeroGClient:
         pass
 
     async def upload(self, data: bytes) -> UploadResult:
-        return await self._backend.upload(data)
+        return await self._backend.upload(_frame(data))
 
     async def download(self, root_hash: str) -> bytes:
-        return await self._backend.download(root_hash)
+        raw = await self._backend.download(root_hash)
+        return _unframe(raw)
 
     async def upload_json(self, obj: Any) -> UploadResult:
         return await self.upload(json.dumps(obj).encode("utf-8"))

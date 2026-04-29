@@ -60,17 +60,13 @@ class SwarmKV:
     # ── Manifest management ───────────────────────────────────────────────────
 
     async def load_manifest(self, manifest_root: str | None = None) -> None:
-        """
-        Restore the key→root_hash manifest from 0G.
-        If manifest_root is None, starts fresh (first-time setup).
-        """
         if manifest_root is None:
             self._log.info("manifest: starting fresh (no prior root)")
             return
-
         try:
             raw = await self._client.download(manifest_root)
-            self._manifest = json.loads(raw.decode("utf-8"))
+            decoded = json.loads(raw.decode("utf-8"))
+            self._manifest = decoded.get("_keys", decoded) if isinstance(decoded, dict) and "_keys" in decoded else decoded
             self._manifest_root = manifest_root
             self._log.info(
                 "manifest: loaded",
@@ -78,15 +74,17 @@ class SwarmKV:
                 keys=len(self._manifest),
             )
         except Exception as exc:
-            self._log.warning(
-                "manifest: failed to load, starting fresh",
-                error=str(exc),
-            )
+            self._log.warning("manifest: failed to load, starting fresh", error=str(exc))
             self._manifest = {}
 
     async def _persist_manifest(self) -> str:
         """Upload current manifest to 0G and return its root hash."""
-        raw = json.dumps(self._manifest).encode("utf-8")
+        from datetime import datetime, timezone
+        payload = {
+            "_ts": datetime.now(tz=timezone.utc).isoformat(),  
+            "_keys": self._manifest,
+        }
+        raw = json.dumps(payload, sort_keys=True).encode("utf-8")
         result = await self._client.upload(raw)
         self._manifest_root = result.root_hash
         self._log.debug(

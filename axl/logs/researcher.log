@@ -12,6 +12,6 @@ Listening on 127.0.0.1:9002
 TCP Listener started on port 7000
 [node] Stopping...
 [node] Stopped
-2026/04/27 06:41:51 RWC Read error: ErrClosed
-2026/04/27 06:41:51 Node exited with error: 
+2026/04/28 16:37:39 RWC Read error: ErrClosed
+2026/04/28 16:37:39 Node exited with error: 
 HTTP server failed: listen tcp 127.0.0.1:9002: bind: address already in use

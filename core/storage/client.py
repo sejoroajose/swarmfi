@@ -142,19 +142,26 @@ class _ZeroGStorageClient:
             )
 
     def _run(self, args: list[str], stdin: bytes | None = None) -> bytes:
-        """Run the sidecar synchronously (via asyncio.to_thread). Returns stdout."""
+        """Run the sidecar synchronously (via asyncio.to_thread). Returns stdout as bytes."""
         cmd = ["node", str(self._sidecar), *args]
         result = subprocess.run(
             cmd,
             input=stdin,
             capture_output=True,
-            timeout=180,
-            cwd=str(self._sidecar.parent),   # so relative node_modules resolves
+            timeout=600,
+            cwd=str(self._sidecar.parent),
+            text=False,                    # Keep as bytes (safer for binary download)
         )
         if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
-            raise RuntimeError(f"zg-sidecar failed:\n{stderr}")
-        return result.stdout
+            stdout = result.stdout.decode(errors="replace").strip()
+            raise RuntimeError(
+                f"zg-sidecar failed (code {result.returncode}):\n"
+                f"CMD: {' '.join(cmd)}\n"
+                f"STDOUT:\n{stdout}\n"
+                f"STDERR:\n{stderr}"
+            )
+        return result.stdout   # already bytes
 
     async def upload(self, data: bytes) -> UploadResult:
         args = [

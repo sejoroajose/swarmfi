@@ -8,10 +8,10 @@
 [node] Our IPv6: 201:c2bb:7ddb:8bb0:b60d:eba3:73bf:d8e
 [node] Our Public Key: 4f5120891d13d27c851723103c9c40d95a818e2be07f73b340c21832ce51d5d8
 [node] MCP Router URL: 127.0.0.1:9013/route
-TCP Listener started on port 7001
 Listening on 127.0.0.1:9012
+TCP Listener started on port 7001
 [node] Stopping...
 [node] Stopped
-2026/04/27 06:41:51 RWC Read error: ErrClosed
-2026/04/27 06:41:51 Node exited with error: 
+2026/04/28 16:37:39 RWC Read error: ErrClosed
+2026/04/28 16:37:39 Node exited with error: 
 HTTP server failed: listen tcp 127.0.0.1:9012: bind: address already in use

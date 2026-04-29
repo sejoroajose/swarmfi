@@ -1,20 +1,20 @@
 """
 core/compute/client.py
-0G Compute Network inference client.
+0G Compute Network inference client via the 0G Router API.
 
-0G Compute exposes an OpenAI-compatible API.
-Base URL per provider: https://<provider-host>/v1/proxy
-Auth: Authorization: Bearer app-sk-<YOUR_SECRET>
+The Router is a standard OpenAI-compatible REST API.
+Base URL: https://router-api.0g.ai/v1
+Auth:     Authorization: Bearer sk-<YOUR_KEY>
 
 Get your key:
-  1. Go to https://0g.ai/compute-network
-  2. Find a provider (GLM-5-FP8 or qwen3)
-  3. Transfer 0G funds to provider
-  4. Click Generate New Key → app-sk-...
+  1. Go to https://pc.0g.ai
+  2. Connect wallet and deposit 0G tokens
+  3. Dashboard → API Keys → Create key (inference permission)
+  4. You get sk-... (store in ZG_COMPUTE_API_KEY)
 
 Env vars:
-  ZG_COMPUTE_BASE_URL  e.g. https://compute-network-1.integratenetwork.work/v1/proxy
-  ZG_COMPUTE_API_KEY   app-sk-...
+  ZG_COMPUTE_API_KEY   sk-...
+  ZG_COMPUTE_BASE_URL  https://router-api.0g.ai/v1  (default)
   ZG_COMPUTE_MODEL     zai-org/GLM-5-FP8  (default)
 """
 
@@ -30,17 +30,13 @@ from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt,
 
 log = structlog.get_logger(__name__)
 
-_DEFAULT_MODEL   = "zai-org/GLM-5-FP8"
-_DEFAULT_TIMEOUT = 60.0
+_DEFAULT_BASE_URL = "https://router-api-testnet.integratenetwork.work/v1"
+_DEFAULT_MODEL    = "qwen/qwen-2.5-7b-instruct"
+_DEFAULT_TIMEOUT  = 60.0
 
 
 class _MockComputeBackend:
-    """Deterministic mock — returns structured JSON risk assessments."""
-
-    async def chat(self, messages: list[dict], model: str, **kw: Any) -> str:
-        # Extract context from the last user message to give a realistic mock
-        user_msg = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-        # Return a valid JSON risk assessment
+    async def chat(self, messages: list[dict], model: str | None = None, **kw: Any) -> str:
         return json.dumps({
             "risk_score": 3.2,
             "action": "buy",
@@ -59,7 +55,10 @@ class _LiveComputeBackend:
 
     async def __aenter__(self) -> "_LiveComputeBackend":
         self._http = httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {self._api_key}"},
+            headers={
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type":  "application/json",
+            },
             timeout=httpx.Timeout(_DEFAULT_TIMEOUT),
         )
         return self
@@ -71,8 +70,8 @@ class _LiveComputeBackend:
     async def chat(self, messages: list[dict], model: str | None = None, **kw: Any) -> str:
         assert self._http
         payload = {
-            "model":    model or self._model,
-            "messages": messages,
+            "model":      model or self._model,
+            "messages":   messages,
             "max_tokens": kw.get("max_tokens", 512),
         }
         async for attempt in AsyncRetrying(
@@ -91,11 +90,6 @@ class _LiveComputeBackend:
 
 
 class ZeroGComputeClient:
-    """
-    0G Compute inference client.
-    Auto-selects mock when ZG_COMPUTE_API_KEY is not set.
-    """
-
     def __init__(self, backend: _LiveComputeBackend | _MockComputeBackend) -> None:
         self._backend = backend
         self.is_live  = isinstance(backend, _LiveComputeBackend)
@@ -103,12 +97,11 @@ class ZeroGComputeClient:
     @classmethod
     def from_env(cls) -> "ZeroGComputeClient":
         api_key  = os.getenv("ZG_COMPUTE_API_KEY", "").strip()
-        base_url = os.getenv("ZG_COMPUTE_BASE_URL",
-                             "https://compute-network-1.integratenetwork.work/v1/proxy")
+        base_url = os.getenv("ZG_COMPUTE_BASE_URL", _DEFAULT_BASE_URL)
         model    = os.getenv("ZG_COMPUTE_MODEL", _DEFAULT_MODEL)
 
         if api_key:
-            log.info("0G Compute: live mode", model=model)
+            log.info("0G Compute: live mode", model=model, base_url=base_url)
             return cls(_LiveComputeBackend(base_url, api_key, model))
         log.info("0G Compute: mock mode (set ZG_COMPUTE_API_KEY for live)")
         return cls(_MockComputeBackend())

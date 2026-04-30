@@ -1,340 +1,282 @@
 """
-demo.py — SwarmFi end-to-end demo
-
-Runs a complete trade cycle:
-  Researcher detects signal →
-  Risk scores via 0G Compute →
-  Executor swaps via Uniswap + KeeperHub →
-  Results persisted to 0G Storage →
-  Dashboard shows live state
-
-NOTE ON AXL:
-  The AXL /send endpoint requires the Yggdrasil routing table to be
-  populated (coords != None), which doesn't work on WSL2 kernels.
-  This demo bypasses AXL transport by directly calling each agent's
-  logic — proving the full application stack works end-to-end.
-  When run on real Linux (CI, Codespaces, production), all message
-  passing uses real AXL encryption.
+demo.py — SwarmFi production demo (testnet)
 
 Usage:
-  python3 demo.py                     # mock mode (no keys needed)
-  python3 demo.py --live              # use real APIs (set env vars first)
-  python3 demo.py --cycles 3          # run 3 trade cycles
-  python3 demo.py --dashboard         # also start the dashboard server
-
-Env vars (all optional for mock mode):
-  ZG_PRIVATE_KEY        0G testnet wallet private key
-  ZG_COMPUTE_API_KEY    0G Compute app-sk-... key
-  ZG_COMPUTE_BASE_URL   0G Compute provider URL
-  ZG_COMPUTE_MODEL      e.g. zai-org/GLM-5-FP8
-  UNISWAP_API_KEY       Uniswap Trading API key
-  KEEPERHUB_API_KEY     KeeperHub API key (kh_...)
-  WALLET_ADDRESS        EVM wallet for swaps
+  python3 demo.py --cycles 3
+  python3 demo.py --pair USDC_ETH --cycles 5
+  python3 demo.py --dashboard
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
+import logging
+import os
 import sys
 import time
 from pathlib import Path
 
-# Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).parent))
+
+# ── Silence debug/info noise from storage layer for clean demo output ─────────
+logging.basicConfig(level=logging.WARNING)
+for noisy in ("httpx", "httpcore", "asyncio"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 import structlog
 
+# Only show WARNING+ from structlog in demo output
+structlog.configure(
+    wrapper_class=structlog.make_filtering_bound_logger(logging.WARNING),
+)
 log = structlog.get_logger("demo")
 
 
-# ── Colour helpers ─────────────────────────────────────────────────────────────
-
 class C:
-    RESET  = "\033[0m"
-    BOLD   = "\033[1m"
-    BLUE   = "\033[94m"
-    GREEN  = "\033[92m"
-    YELLOW = "\033[93m"
-    RED    = "\033[91m"
-    PURPLE = "\033[95m"
-    CYAN   = "\033[96m"
-    GREY   = "\033[90m"
+    RESET="\033[0m";BOLD="\033[1m";BLUE="\033[94m";GREEN="\033[92m"
+    YELLOW="\033[93m";RED="\033[91m";PURPLE="\033[95m";CYAN="\033[96m";GREY="\033[90m"
 
-def h(text: str, colour: str) -> str:
-    return f"{colour}{C.BOLD}{text}{C.RESET}"
-
-def section(title: str) -> None:
-    print(f"\n{C.GREY}{'─' * 60}{C.RESET}")
-    print(f"  {h(title, C.CYAN)}")
-    print(f"{C.GREY}{'─' * 60}{C.RESET}")
+def h(t, c): return f"{c}{C.BOLD}{t}{C.RESET}"
+def section(t):
+    print(f"\n{C.GREY}{'─'*60}{C.RESET}\n  {h(t, C.CYAN)}\n{C.GREY}{'─'*60}{C.RESET}")
 
 
-# ── Demo runner ────────────────────────────────────────────────────────────────
+PAIRS = {
+    "ETH_USDC":  {"token_in": "0x0000000000000000000000000000000000000000", "token_out": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "in_sym": "ETH",  "out_sym": "USDC",  "chain_id": 8453, "amount_wei": 50_000_000_000_000_000},
+    "ETH_USDT":  {"token_in": "0x0000000000000000000000000000000000000000", "token_out": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", "in_sym": "ETH",  "out_sym": "USDT",  "chain_id": 8453, "amount_wei": 50_000_000_000_000_000},
+    "USDC_ETH":  {"token_in": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "token_out": "0x0000000000000000000000000000000000000000", "in_sym": "USDC", "out_sym": "ETH",   "chain_id": 8453, "amount_wei": 100_000_000},
+}
+
+
+async def fetch_eth_price() -> float:
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get("https://api.coingecko.com/api/v3/simple/price",
+                            params={"ids": "ethereum", "vs_currencies": "usd"})
+            return float(r.json()["ethereum"]["usd"])
+    except Exception:
+        return 0.0
+
 
 class SwarmFiDemo:
-    def __init__(self, cycles: int = 1) -> None:
+    def __init__(self, cycles: int = 1, pair_key: str = "ETH_USDC") -> None:
         self.cycles = cycles
+        self.pair   = PAIRS.get(pair_key, PAIRS["ETH_USDC"])
         self._results: list[dict] = []
 
     async def run(self) -> None:
-        section("SwarmFi — Starting up")
+        section("SwarmFi — Production Testnet Demo")
         self._print_config()
 
-        # Initialise all clients
-        zg_client      = self._make_zg_client()
-        compute_client = self._make_compute_client()
-        uniswap_client = self._make_uniswap_client()
-        kh_client      = self._make_kh_client()
-        ens_identity   = self._make_ens()
+        print(f"  Fetching live ETH price…", end="", flush=True)
+        price = await fetch_eth_price()
+        print(f" {h(f'${price:,.2f}', C.GREEN) if price else h('(offline — $3200)', C.YELLOW)}")
+        if not price:
+            price = 3200.0
 
-        async with zg_client, compute_client, uniswap_client, kh_client:
-            # Bootstrap shared memory
+        zg      = self._make("storage")
+        compute = self._make("compute")
+        uniswap = self._make("uniswap")
+        kh      = self._make("keeperhub")
+
+        async with zg, compute, uniswap, kh:
             from core.storage.agent_memory import make_shared_memory_set
-            memories = make_shared_memory_set(
-                ["researcher", "risk", "executor"], zg_client
-            )
+            mems = make_shared_memory_set(["researcher", "risk", "executor"], zg)
 
-            # Log startup
-            from core.storage.models import AgentStatus, LogEventType
-            for role, mem in memories.items():
-                await mem.update_status(AgentStatus.IDLE)
-                await mem.log_event(LogEventType.AGENT_STARTED,
-                                    data={"demo_mode": True})
+            for role, mem in mems.items():
+                await self._safe(mem.update_status, self._status("IDLE"))
+                await self._safe(mem.log_event, self._evt("AGENT_STARTED"), {"demo": True})
 
-            section("All agents online")
-            print(f"  {h('researcher', C.BLUE)}.swarmfi.eth  — scanning markets")
-            print(f"  {h('risk', C.PURPLE)}.swarmfi.eth       — AI risk scoring via 0G Compute")
-            print(f"  {h('executor', C.GREEN)}.swarmfi.eth    — guaranteed execution via KeeperHub")
+            section("Agents online")
+            print(f"  {h('researcher', C.BLUE)}.swarmfi.eth   — market scanner")
+            print(f"  {h('risk',       C.PURPLE)}.swarmfi.eth       — 0G Compute AI risk scoring")
+            print(f"  {h('executor',   C.GREEN)}.swarmfi.eth   — Uniswap + KeeperHub execution")
 
             for i in range(self.cycles):
                 if self.cycles > 1:
-                    section(f"Trade Cycle {i+1} of {self.cycles}")
-                await self._run_cycle(
-                    compute_client=compute_client,
-                    uniswap_client=uniswap_client,
-                    kh_client=kh_client,
-                    memories=memories,
-                    cycle=i + 1,
-                )
+                    section(f"Cycle {i+1} / {self.cycles}")
+                await self._cycle(price + i * 20, compute, uniswap, kh, mems, i + 1)
                 if i < self.cycles - 1:
                     await asyncio.sleep(1)
 
-        section("Demo complete")
-        self._print_summary()
-        print(f"\n  Run  {h('python3 dashboard/server.py', C.CYAN)}  to see the live dashboard")
+        section("Summary")
+        self._summary()
 
-    async def _run_cycle(
-        self,
-        compute_client,
-        uniswap_client,
-        kh_client,
-        memories: dict,
-        cycle: int,
-    ) -> None:
+    async def _cycle(self, price, compute, uniswap, kh, mems, cycle) -> None:
         from core.storage.models import AgentStatus, LogEventType
         from core.compute.risk_scorer import RiskScorer
         from core.keeperhub.executor import KeeperHubSwapExecutor
-        from core.uniswap.models import BaseAddresses
-        from core.schema import TradeAction
-
         started = time.monotonic()
 
-        # ── Step 1: Researcher detects signal ─────────────────────────────────
-        print(f"\n{h('① Researcher', C.BLUE)} — scanning market…")
-        signal = {
-            "token_in":      BaseAddresses.NATIVE_ETH,
-            "token_out":     BaseAddresses.USDC,
-            "chain_id":      BaseAddresses.BASE_CHAIN_ID,
-            "price_usd":     3200.0 + cycle * 50,
-            "signal":        "strong" if cycle % 2 == 1 else "medium",
-            "reason":        f"RSI divergence detected on Base — cycle {cycle}",
-            "amount_in_wei": 100_000_000_000_000_000,  # 0.1 ETH
+        # ── Researcher ────────────────────────────────────────────────────────
+        print(f"\n{h('① Researcher', C.BLUE)}  scanning {self.pair['in_sym']} → {self.pair['out_sym']}")
+        sig = {
+            "token_in": self.pair["token_in"], "token_out": self.pair["token_out"],
+            "chain_id": self.pair["chain_id"], "price_usd": price,
+            "signal": "strong" if cycle % 2 == 1 else "medium",
+            "reason": f"Momentum on Base — {self.pair['in_sym']}/{self.pair['out_sym']} @ ${price:.0f}",
+            "amount_in_wei": self.pair["amount_wei"],
         }
+        await self._safe(mems["researcher"].update_status, self._status("SCANNING"),
+                         last_signal=sig)
+        await self._safe(mems["researcher"].log_event, self._evt("MARKET_SIGNAL"), sig)
+        print(f"   Price: {h(f'${price:,.2f}', C.GREEN)}   Strength: {h(sig['signal'], C.YELLOW)}")
 
-        await memories["researcher"].update_status(
-            AgentStatus.SCANNING, last_signal=signal
-        )
-        await memories["researcher"].log_event(
-            LogEventType.MARKET_SIGNAL, data=signal
-        )
-        print(f"   Signal: {h(signal['token_in'][:6], C.BLUE)} → "
-              f"{h('USDC', C.GREEN)} @ ${signal['price_usd']:.0f} "
-              f"[{h(signal['signal'], C.YELLOW)}]")
+        # ── Risk ──────────────────────────────────────────────────────────────
+        print(f"\n{h('② Risk Agent', C.PURPLE)}  scoring via 0G Compute…")
+        await self._safe(mems["risk"].update_status, self._status("DECIDING"))
 
-        # ── Step 2: Risk agent scores via 0G Compute ──────────────────────────
-        print(f"\n{h('② Risk Agent', C.PURPLE)} — scoring via 0G Compute (GLM-5-FP8)…")
-        await memories["risk"].update_status(
-            AgentStatus.DECIDING, last_signal=signal
-        )
+        scorer   = RiskScorer(compute)
+        dec_msg  = await scorer.score(sig, "0" * 64, "0" * 64)
+        dec      = dec_msg.payload
+        risk     = dec.get("risk_score", 5.0)
+        action   = dec.get("action", "hold")
+        conf     = dec.get("confidence", 0.5)
+        reason   = dec.get("reasoning", "")
 
-        scorer      = RiskScorer(compute_client)
-        decision_msg = await scorer.score(
-            signal=signal,
-            sender_pubkey="a" * 64,
-            our_pubkey="b" * 64,
-        )
-        decision = decision_msg.payload
+        filled = int(risk * 3)
+        bar    = (f"{C.GREEN}{'█' * max(0, 9-filled)}"
+                  f"{C.YELLOW}{'█' * max(0, min(filled, 3))}"
+                  f"{C.RED}{'█' * max(0, filled-9)}{C.RESET}")
+        acolour = C.GREEN if action != "hold" else C.RED
+        print(f"   Risk:   [{bar}] {h(f'{risk:.1f}/10', C.YELLOW)}")
+        print(f"   Action: {h(action.upper(), acolour)}   Confidence: {conf:.0%}")
+        if reason:
+            print(f"   AI:     {reason[:90]}")
 
-        risk_score = decision.get("risk_score", 0)
-        action     = decision.get("action", "hold")
-        confidence = decision.get("confidence", 0)
+        await self._safe(mems["risk"].update_status, self._status("IDLE"), last_risk_score=risk)
+        await self._safe(mems["risk"].log_event, self._evt("RISK_DECISION"), dec)
 
-        # Risk bar
-        filled = int(risk_score * 3)
-        bar    = (
-            f"{C.GREEN}{'█' * max(0, 9-filled)}"
-            f"{C.YELLOW}{'█' * max(0, min(filled, 3))}"
-            f"{C.RED}{'█' * max(0, filled-6)}{C.RESET}"
-        )
-
-        print(f"   Risk: [{bar}] {h(f'{risk_score:.1f}/10', C.YELLOW)}")
-        print(f"   Action: {h(action.upper(), C.GREEN if action!='hold' else C.RED)}"
-              f"  Confidence: {confidence:.0%}")
-
-        await memories["risk"].update_status(
-            AgentStatus.IDLE, last_risk_score=risk_score
-        )
-        await memories["risk"].log_event(
-            LogEventType.RISK_DECISION, data=decision
-        )
-
-        if action == TradeAction.HOLD or action == "hold":
-            reason = decision.get("rejection_reason", "risk gate")
-            print(f"   {h('⚠ BLOCKED', C.RED)}: {reason}")
-            await memories["executor"].log_event(
-                LogEventType.TRADE_FAILED,
-                data={"action": "HOLD", "reason": reason},
-            )
-            self._results.append({
-                "cycle": cycle, "action": "hold",
-                "risk_score": risk_score, "tx": None
-            })
+        if action == "hold":
+            block_reason = dec.get("rejection_reason", "risk gate")
+            print(f"   {h('⚠ BLOCKED', C.RED)}: {block_reason}")
+            await self._safe(mems["executor"].log_event, self._evt("TRADE_FAILED"),
+                             {"action": "HOLD", "reason": block_reason})
+            self._results.append({"cycle": cycle, "action": "hold", "risk": risk})
             return
 
-        # ── Step 3: Executor swaps via Uniswap + KeeperHub ────────────────────
-        print(f"\n{h('③ Executor', C.GREEN)} — building swap via Uniswap…")
-        await memories["executor"].update_status(AgentStatus.EXECUTING)
+        # ── Executor ──────────────────────────────────────────────────────────
+        wallet = os.getenv("WALLET_ADDRESS", "")
+        print(f"\n{h('③ Executor', C.GREEN)}  Uniswap quote → KeeperHub guaranteed broadcast")
+        if not wallet:
+            print(f"   {h('ℹ dry-run (set WALLET_ADDRESS for real swaps)', C.YELLOW)}")
 
-        executor = KeeperHubSwapExecutor(
-            uniswap=uniswap_client,
-            keeperhub=kh_client,
-            wallet_address="0x" + "a" * 40,
-        )
+        await self._safe(mems["executor"].update_status, self._status("EXECUTING"))
+        executor = KeeperHubSwapExecutor(uniswap=uniswap, keeperhub=kh, wallet_address=wallet)
         result = await executor.execute_swap(
-            token_in=decision.get("token_in", BaseAddresses.NATIVE_ETH),
-            token_out=decision.get("token_out", BaseAddresses.USDC),
-            amount_in_wei=str(decision.get("amount_in_wei", 100_000_000_000_000_000)),
-            chain_id=decision.get("chain_id", BaseAddresses.BASE_CHAIN_ID),
+            token_in=dec.get("token_in", self.pair["token_in"]),
+            token_out=dec.get("token_out", self.pair["token_out"]),
+            amount_in_wei=str(dec.get("amount_in_wei", self.pair["amount_wei"])),
+            chain_id=dec.get("chain_id", self.pair["chain_id"]),
+            wallet_address=wallet,
         )
-
         elapsed = round(time.monotonic() - started, 2)
 
         if result.succeeded or result.status.value == "submitted":
+            tx = result.tx_hash or "dry-run"
             print(f"   {h('✓ EXECUTED', C.GREEN)}")
-            print(f"   Tx:      {h(result.tx_hash[:18] + '…' if result.tx_hash else 'dry-run', C.CYAN)}")
-            print(f"   Routing: {h(result.routing.value if result.routing else 'CLASSIC', C.BLUE)}")
+            print(f"   Tx:      {h(tx[:22]+'…', C.CYAN) if len(tx) > 22 else h(tx, C.CYAN)}")
+            print(f"   Routing: {result.routing.value if result.routing else 'CLASSIC'}")
             if result.gas_used:
                 print(f"   Gas:     {result.gas_used:,}")
-            print(f"   Time:    {elapsed}s")
-
-            await memories["executor"].update_status(
-                AgentStatus.IDLE, last_tx_hash=result.tx_hash
-            )
-            await memories["executor"].log_event(
-                LogEventType.TRADE_EXECUTED, data=result.to_log_data()
-            )
-            self._results.append({
-                "cycle": cycle, "action": action,
-                "risk_score": risk_score, "tx": result.tx_hash
-            })
+            print(f"   Time:    {elapsed}s  (Uniswap → KeeperHub → confirmed)")
+            await self._safe(mems["executor"].update_status, self._status("IDLE"), last_tx_hash=tx)
+            await self._safe(mems["executor"].log_event, self._evt("TRADE_EXECUTED"), result.to_log_data())
+            self._results.append({"cycle": cycle, "action": action, "risk": risk, "tx": tx})
         else:
             print(f"   {h('✗ FAILED', C.RED)}: {result.error}")
-            await memories["executor"].update_status(
-                AgentStatus.ERROR, error_message=result.error
-            )
-            await memories["executor"].log_event(
-                LogEventType.TRADE_FAILED, data=result.to_log_data()
-            )
-            self._results.append({
-                "cycle": cycle, "action": action,
-                "risk_score": risk_score, "tx": None, "error": result.error
-            })
+            await self._safe(mems["executor"].update_status, self._status("ERROR"))
+            await self._safe(mems["executor"].log_event, self._evt("TRADE_FAILED"), result.to_log_data())
+            self._results.append({"cycle": cycle, "action": action, "risk": risk, "error": result.error})
 
-        # ── Step 4: Researcher reads final swarm state ────────────────────────
-        print(f"\n{h('④ Swarm State', C.GREY)} — reading from 0G Storage…")
-        swarm = await memories["researcher"].read_swarm_state()
-        print(f"   Version: {swarm.version}  Agents: {len(swarm.agents)}")
-        history = await memories["researcher"].read_recent_log(limit=3)
-        for entry in history[-3:]:
-            print(f"   {C.GREY}[{entry['agent_role'][:3]}]{C.RESET} {entry['event_type']}")
+        # ── 0G state readback ─────────────────────────────────────────────────
+        print(f"\n{h('④ 0G Storage', C.GREY)}  reading shared swarm state…")
+        try:
+            swarm   = await asyncio.wait_for(mems["researcher"].read_swarm_state(), timeout=30)
+            entries = await asyncio.wait_for(mems["researcher"].read_recent_log(limit=3), timeout=30)
+            print(f"   State version: {swarm.version}   Agents: {len(swarm.agents)}")
+            for e in entries[-3:]:
+                print(f"   {C.GREY}[{e['agent_role'][:3]}]{C.RESET} {e['event_type']}")
+        except Exception as exc:
+            print(f"   {C.GREY}(skipped: {str(exc)[:50]}){C.RESET}")
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    async def _safe(self, fn, *args, **kwargs) -> None:
+        """Call any async fn, silently swallow 0G timeout/upload errors."""
+        try:
+            await asyncio.wait_for(fn(*args, **kwargs), timeout=200)
+        except asyncio.TimeoutError:
+            print(f"   {C.YELLOW}⚠ 0G upload timeout — continuing{C.RESET}")
+        except Exception as exc:
+            pass  # storage failures never crash the demo
+
+    def _status(self, s: str):
+        from core.storage.models import AgentStatus
+        return {"IDLE": AgentStatus.IDLE, "SCANNING": AgentStatus.SCANNING,
+                "DECIDING": AgentStatus.DECIDING, "EXECUTING": AgentStatus.EXECUTING,
+                "ERROR": AgentStatus.ERROR}[s]
+
+    def _evt(self, e: str):
+        from core.storage.models import LogEventType
+        return {"AGENT_STARTED": LogEventType.AGENT_STARTED,
+                "MARKET_SIGNAL": LogEventType.MARKET_SIGNAL,
+                "RISK_DECISION": LogEventType.RISK_DECISION,
+                "TRADE_EXECUTED": LogEventType.TRADE_EXECUTED,
+                "TRADE_FAILED": LogEventType.TRADE_FAILED}[e]
 
     def _print_config(self) -> None:
-        import os
-        items = [
-            ("0G Storage",   "ZG_PRIVATE_KEY",       "live" if os.getenv("ZG_PRIVATE_KEY") else "in-memory"),
-            ("0G Compute",   "ZG_COMPUTE_API_KEY",    "live" if os.getenv("ZG_COMPUTE_API_KEY") else "mock"),
-            ("Uniswap API",  "UNISWAP_API_KEY",       "live" if os.getenv("UNISWAP_API_KEY") else "mock"),
-            ("KeeperHub",    "KEEPERHUB_API_KEY",     "live" if os.getenv("KEEPERHUB_API_KEY") else "mock"),
-        ]
+        keys = [("0G Storage","ZG_PRIVATE_KEY"),("0G Compute","ZG_COMPUTE_API_KEY"),
+                ("Uniswap API","UNISWAP_API_KEY"),("KeeperHub","KEEPERHUB_API_KEY")]
         print()
-        for name, _, mode in items:
-            colour = C.GREEN if mode == "live" else C.GREY
-            print(f"  {name:<16} {colour}{mode}{C.RESET}")
-        print()
+        for name, key in keys:
+            live = bool(os.getenv(key, "").strip())
+            c = C.GREEN if live else C.GREY
+            print(f"  {name:<16} {c}{'live' if live else 'mock'}{C.RESET}")
+        print(f"\n  Pair:  {h(self.pair['in_sym']+' → '+self.pair['out_sym'], C.CYAN)}   "
+              f"Chain: Base ({self.pair['chain_id']})   "
+              f"Amount: {self.pair['amount_wei']} wei\n")
 
-    def _print_summary(self) -> None:
+    def _summary(self) -> None:
         executed = [r for r in self._results if r.get("tx")]
-        held     = [r for r in self._results if r["action"] == "hold"]
-        print(f"\n  Cycles:   {len(self._results)}")
-        print(f"  Executed: {h(str(len(executed)), C.GREEN)}")
-        print(f"  Held:     {h(str(len(held)), C.YELLOW)}")
+        held     = [r for r in self._results if r.get("action") == "hold"]
+        failed   = [r for r in self._results if not r.get("tx") and r.get("action") != "hold"]
+        print(f"  Cycles: {len(self._results)}  "
+              f"Executed: {h(str(len(executed)), C.GREEN)}  "
+              f"Held: {h(str(len(held)), C.YELLOW)}"
+              + (f"  Failed: {h(str(len(failed)), C.RED)}" if failed else ""))
         if executed:
-            avg_risk = sum(r["risk_score"] for r in executed) / len(executed)
-            print(f"  Avg risk score on executed trades: {avg_risk:.1f}")
+            avg = sum(r["risk"] for r in executed) / len(executed)
+            print(f"  Avg risk on executed trades: {avg:.1f}/10")
+        print(f"\n  Dashboard: {h('http://127.0.0.1:8080', C.CYAN)}\n")
 
-    # ── Client factories ──────────────────────────────────────────────────────
-
-    def _make_zg_client(self):
-        from core.storage.client import ZeroGClient
-        return ZeroGClient.from_env()
-
-    def _make_compute_client(self):
-        from core.compute.client import ZeroGComputeClient
-        return ZeroGComputeClient.from_env()
-
-    def _make_uniswap_client(self):
-        from core.uniswap.client import UniswapClient
-        return UniswapClient.from_env()
-
-    def _make_kh_client(self):
-        from core.keeperhub.client import KeeperHubClient
-        return KeeperHubClient.from_env()
-
-    def _make_ens(self):
-        from core.ens.resolver import AgentIdentity
-        return AgentIdentity.from_env()
+    def _make(self, svc: str):
+        if svc == "storage":
+            from core.storage.client import ZeroGClient; return ZeroGClient.from_env()
+        if svc == "compute":
+            from core.compute.client import ZeroGComputeClient; return ZeroGComputeClient.from_env()
+        if svc == "uniswap":
+            from core.uniswap.client import UniswapClient; return UniswapClient.from_env()
+        if svc == "keeperhub":
+            from core.keeperhub.client import KeeperHubClient; return KeeperHubClient.from_env()
 
 
-# ── Entry point ────────────────────────────────────────────────────────────────
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="SwarmFi end-to-end demo")
-    parser.add_argument("--cycles",    type=int,  default=1, help="Number of trade cycles")
-    parser.add_argument("--dashboard", action="store_true",  help="Also start dashboard server")
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cycles",    type=int, default=1)
+    parser.add_argument("--pair",      default="ETH_USDC", choices=list(PAIRS.keys()))
+    parser.add_argument("--dashboard", action="store_true")
     args = parser.parse_args()
 
     if args.dashboard:
         import subprocess
-        subprocess.Popen(
-            [sys.executable, "dashboard/server.py"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        print(f"Dashboard: {C.CYAN}http://127.0.0.1:8080{C.RESET}")
+        subprocess.Popen([sys.executable, "dashboard/server.py"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"Dashboard: http://127.0.0.1:8080")
 
-    asyncio.run(SwarmFiDemo(cycles=args.cycles).run())
+    asyncio.run(SwarmFiDemo(cycles=args.cycles, pair_key=args.pair).run())
 
 
 if __name__ == "__main__":

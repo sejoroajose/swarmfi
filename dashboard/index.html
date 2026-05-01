@@ -891,8 +891,20 @@ const ago = ts => {
   if (d < 3600) return Math.round(d/60) + "m ago";
   return Math.round(d/3600) + "h ago";
 };
-const explorerForTx = tx => tx ? `https://basescan.org/tx/${tx}` : null;
-const explorerForSnapshot = root => root ? `https://chainscan-galileo.0g.ai/tx/${root}` : null;
+const explorerForTx = tx => tx ? `https://sepolia.etherscan.io/tx/${tx}` : null;
+
+// 0G snapshot link:
+//   - if we have the flow tx hash, link to chainscan's tx page (best UX)
+//   - otherwise fall back to the swarm wallet's chainscan address page —
+//     every committed snapshot shows up there as a transaction. Root hashes
+//     alone are storage-layer Merkle roots; chainscan can't render them and
+//     a 'tx not found' page is what you get if you try.
+const SWARM_ADDRESS = "0x34939E50C09a7c1b1cEC69b1eF2F9A97995de0c2";
+const explorerForSnapshot = (txHash, root) => {
+  if (txHash) return `https://chainscan-galileo.0g.ai/tx/${txHash}`;
+  if (root)   return `https://chainscan-galileo.0g.ai/address/${SWARM_ADDRESS}`;
+  return null;
+};
 const riskBand = s => s == null ? "" : s <= 3 ? "low" : s <= 6 ? "mid" : "high";
 const riskColor = s => s == null ? "var(--accent)" : s <= 3 ? "var(--green)" : s <= 6 ? "var(--amber)" : "var(--rose)";
 
@@ -981,13 +993,25 @@ function renderState(state) {
   const hsTx = document.getElementById("hs-tx");
   hsTx.innerHTML = tx ? `<a href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>` : "—";
 
-  const snap = state.snapshot_root;
-  document.getElementById("hs-snap").textContent = SHORT(snap);
+  const snap   = state.snapshot_root;
+  const snapTx = state.snapshot_tx;
+  // hero stat: show the tx hash when we have it (chainscan-resolvable),
+  // otherwise the storage root (still useful as a content identifier).
+  const hsSnapEl = document.getElementById("hs-snap");
+  const snapUrl  = explorerForSnapshot(snapTx, snap);
+  if (snapTx) {
+    hsSnapEl.innerHTML = `<a href="${snapUrl}" target="_blank">${SHORT(snapTx)}</a>`;
+  } else if (snap) {
+    hsSnapEl.innerHTML = `<a href="${snapUrl}" target="_blank">${SHORT(snap)}</a>`;
+  } else {
+    hsSnapEl.textContent = "—";
+  }
+
   const pill = document.getElementById("snapshot-pill");
-  if (snap) {
+  if (snap || snapTx) {
     pill.style.display = "flex";
-    pill.href = explorerForSnapshot(snap) || "#";
-    document.getElementById("snapshot-text").textContent = SHORT(snap);
+    pill.href = snapUrl || "#";
+    document.getElementById("snapshot-text").textContent = SHORT(snapTx || snap);
   } else {
     pill.style.display = "none";
   }

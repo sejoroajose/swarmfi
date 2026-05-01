@@ -259,31 +259,46 @@ class SwarmFiDemo:
         """Commit all buffered swarm state to 0G as one on-chain snapshot."""
         if not getattr(zg, "is_buffered", False):
             self._snapshot_root = None
-            self._publish_state_to_dashboard(zg, snapshot_root=None)
+            self._snapshot_tx   = None
+            self._publish_state_to_dashboard(zg, snapshot_root=None, snapshot_tx=None)
             return
         print(f"\n{h('⑤ 0G Storage', C.GREY)}  committing swarm snapshot to testnet…")
         entries = zg.buffered_entry_count
         try:
             root = await asyncio.wait_for(zg.flush(), timeout=240)
             self._snapshot_root = root
+            self._snapshot_tx   = getattr(zg, "snapshot_tx", None)
             if root:
                 short = root if len(root) <= 22 else root[:18] + "…"
+                tx_short = (self._snapshot_tx[:18] + "…") if self._snapshot_tx else "(deferred)"
                 print(f"   {h('✓ committed', C.GREEN)}   "
                       f"entries: {h(str(entries), C.CYAN)}   "
                       f"root: {h(short, C.CYAN)}")
+                print(f"   tx:      {h(tx_short, C.CYAN)}")
             else:
                 print(f"   {C.GREY}(nothing to commit){C.RESET}")
         except asyncio.TimeoutError:
             self._snapshot_root = None
+            self._snapshot_tx   = None
             print(f"   {C.YELLOW}⚠ snapshot tx timed out — buffered state intact locally{C.RESET}")
         except Exception as exc:
             self._snapshot_root = None
+            self._snapshot_tx   = None
             print(f"   {C.YELLOW}⚠ snapshot failed: {str(exc)[:60]}{C.RESET}")
 
         # Publish a local view so the dashboard (separate process) can see state
-        self._publish_state_to_dashboard(zg, snapshot_root=self._snapshot_root)
+        self._publish_state_to_dashboard(
+            zg,
+            snapshot_root=self._snapshot_root,
+            snapshot_tx=self._snapshot_tx,
+        )
 
-    def _publish_state_to_dashboard(self, zg, snapshot_root: str | None) -> None:
+    def _publish_state_to_dashboard(
+        self,
+        zg,
+        snapshot_root: str | None,
+        snapshot_tx:   str | None = None,
+    ) -> None:
         """
         Write a JSON sidecar with the current swarm view so the dashboard
         process (which has its own memory) can render real state and the
@@ -297,6 +312,7 @@ class SwarmFiDemo:
             view = {
                 "updated_at":     datetime.now(tz=timezone.utc).isoformat(),
                 "snapshot_root":  snapshot_root,
+                "snapshot_tx":    snapshot_tx,
                 "cycles":         len(self._results),
                 "results":        self._results[-20:],
                 "pair":           self.pair,

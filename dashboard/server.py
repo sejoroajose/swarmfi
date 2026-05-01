@@ -121,6 +121,7 @@ async def _get_zg_state() -> dict:
         "version":       view.get("cycles", 0),
         "updated_at":    view.get("updated_at"),
         "snapshot_root": view.get("snapshot_root"),
+        "snapshot_tx":   view.get("snapshot_tx"),
         "in_progress":   in_progress,
         "agents":        agents,
     }
@@ -560,7 +561,11 @@ def main() -> None:
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 
-def _publish_state_view(snapshot_root: str | None, result: dict) -> None:
+def _publish_state_view(
+    snapshot_root: str | None,
+    result: dict,
+    snapshot_tx: str | None = None,
+) -> None:
     """Append a result to ./logs/swarmfi-state.json so the dashboard sees it."""
     try:
         from datetime import datetime, timezone
@@ -570,6 +575,7 @@ def _publish_state_view(snapshot_root: str | None, result: dict) -> None:
         out = {
             "updated_at":    datetime.now(tz=timezone.utc).isoformat(),
             "snapshot_root": snapshot_root or view.get("snapshot_root"),
+            "snapshot_tx":   snapshot_tx   or view.get("snapshot_tx"),
             "cycles":        len(results),
             "results":       results[-20:],
             "pair":          result.get("signal") or view.get("pair") or {},
@@ -688,12 +694,14 @@ async def _run_trade_cycle(signal: dict) -> None:
                 "tx":     result_view.get("tx"),
             })
             snapshot_root: str | None = None
+            snapshot_tx:   str | None = None
             try:
                 snapshot_root = await asyncio.wait_for(zg.flush(), timeout=240)
+                snapshot_tx   = getattr(zg, "snapshot_tx", None)
             except Exception as exc:
                 log.warning("snapshot flush failed", error=str(exc))
 
-        _publish_state_view(snapshot_root, result_view)
+        _publish_state_view(snapshot_root, result_view, snapshot_tx=snapshot_tx)
 
     except Exception as exc:
         log.error("trade cycle failed", error=str(exc))

@@ -139,6 +139,7 @@ class _BufferedStore:
         self._live: _ZeroGStorageClient = live_backend
         self._mem: dict[str, bytes]     = {}
         self._snapshot_root: str | None = None
+        self._snapshot_tx:   str | None = None  # flow tx that registered the snapshot
 
     async def upload(self, data: bytes) -> UploadResult:
         root = hashlib.sha256(data).hexdigest()
@@ -172,9 +173,11 @@ class _BufferedStore:
         raw = json.dumps(snapshot, sort_keys=True).encode("utf-8")
         result = await self._live.upload(raw)
         self._snapshot_root = result.root_hash
+        self._snapshot_tx   = result.tx_hash
         log.info(
             "0G snapshot committed",
             root=result.root_hash[:18] + "…",
+            tx=(result.tx_hash[:14] + "…") if result.tx_hash else "(deferred)",
             entries=len(self._mem),
             bytes=len(raw),
         )
@@ -183,6 +186,10 @@ class _BufferedStore:
     @property
     def snapshot_root(self) -> str | None:
         return self._snapshot_root
+
+    @property
+    def snapshot_tx(self) -> str | None:
+        return self._snapshot_tx
 
     @property
     def buffered_entry_count(self) -> int:
@@ -358,6 +365,16 @@ class ZeroGClient:
     def snapshot_root(self) -> str | None:
         if isinstance(self._backend, _BufferedStore):
             return self._backend.snapshot_root
+        return None
+
+    @property
+    def snapshot_tx(self) -> str | None:
+        """The flow tx hash that registered the snapshot on-chain.
+        This is the value chainscan-galileo can resolve; the root hash
+        is a storage-layer Merkle root that chainscan can't render.
+        Returns None if the snapshot used the timeout-fallback path."""
+        if isinstance(self._backend, _BufferedStore):
+            return self._backend.snapshot_tx
         return None
 
     @property

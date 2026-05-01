@@ -83,8 +83,9 @@ sleep 0.3
 
 # ── Start dashboard ───────────────────────────────────────────────────────────
 info "Starting dashboard…"
+mkdir -p "$REPO/logs"
 PYTHONPATH="$REPO" "$PYTHON" "$REPO/dashboard/server.py" \
-  > /tmp/swarmfi-dashboard.log 2>&1 &
+  > "$REPO/logs/dashboard.log" 2>&1 &
 DASH_PID=$!
 
 # Wait up to 6 s for dashboard to be ready
@@ -96,7 +97,7 @@ done
 if curl -sf http://127.0.0.1:8080/ >/dev/null 2>&1; then
   ok "Dashboard → ${CYAN}http://127.0.0.1:8080${NC}"
 else
-  warn "Dashboard slow to start — check /tmp/swarmfi-dashboard.log"
+  warn "Dashboard slow to start — check ./logs/dashboard.log"
 fi
 
 # Try to open browser (WSL2 / Linux / macOS)

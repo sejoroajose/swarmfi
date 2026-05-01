@@ -43,8 +43,8 @@ def section(t):
 
 
 PAIRS = {
-    "ETH_USDC":  {"token_in": "0x0000000000000000000000000000000000000000", "token_out": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "in_sym": "ETH",  "out_sym": "USDC",  "chain_id": 8453, "amount_wei": 50_000_000_000_000_000},
-    "ETH_USDT":  {"token_in": "0x0000000000000000000000000000000000000000", "token_out": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", "in_sym": "ETH",  "out_sym": "USDT",  "chain_id": 8453, "amount_wei": 50_000_000_000_000_000},
+    "ETH_USDC":  {"token_in": "0x0000000000000000000000000000000000000000", "token_out": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "in_sym": "ETH",  "out_sym": "USDC",  "chain_id": 8453, "amount_wei": 1_000_000_000_000_000},
+    "ETH_USDT":  {"token_in": "0x0000000000000000000000000000000000000000", "token_out": "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", "in_sym": "ETH",  "out_sym": "USDT",  "chain_id": 8453, "amount_wei": 1_000_000_000_000_000},
     "USDC_ETH":  {"token_in": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "token_out": "0x0000000000000000000000000000000000000000", "in_sym": "USDC", "out_sym": "ETH",   "chain_id": 8453, "amount_wei": 100_000_000},
 }
 
@@ -81,6 +81,8 @@ class SwarmFiDemo:
         uniswap = self._make("uniswap")
         kh      = self._make("keeperhub")
 
+        self._zg = zg
+
         async with zg, compute, uniswap, kh:
             from core.storage.agent_memory import make_shared_memory_set
             mems = make_shared_memory_set(["researcher", "risk", "executor"], zg)
@@ -101,6 +103,9 @@ class SwarmFiDemo:
                 if i < self.cycles - 1:
                     await asyncio.sleep(1)
 
+            # ── Commit buffered swarm state to 0G in ONE on-chain tx ─────────
+            await self._flush_storage(zg)
+
         section("Summary")
         self._summary()
 
@@ -108,21 +113,34 @@ class SwarmFiDemo:
         from core.storage.models import AgentStatus, LogEventType
         from core.compute.risk_scorer import RiskScorer
         from core.keeperhub.executor import KeeperHubSwapExecutor
+        from core.scanner import scan_pairs, format_scan_table
         started = time.monotonic()
 
         # ── Researcher ────────────────────────────────────────────────────────
-        print(f"\n{h('① Researcher', C.BLUE)}  scanning {self.pair['in_sym']} → {self.pair['out_sym']}")
-        sig = {
-            "token_in": self.pair["token_in"], "token_out": self.pair["token_out"],
-            "chain_id": self.pair["chain_id"], "price_usd": price,
-            "signal": "strong" if cycle % 2 == 1 else "medium",
-            "reason": f"Momentum on Base — {self.pair['in_sym']}/{self.pair['out_sym']} @ ${price:.0f}",
-            "amount_in_wei": self.pair["amount_wei"],
-        }
+        print(f"\n{h('① Researcher', C.BLUE)}  scanning Base bluechip pairs · edge profile")
+        scan = await scan_pairs(amount_in_wei=self.pair["amount_wei"])
+        print(format_scan_table(scan))
+        if not scan.best:
+            print(f"   {C.YELLOW}⚠ scanner returned no pairs — falling back to default{C.RESET}")
+            sig = {
+                "token_in": self.pair["token_in"], "token_out": self.pair["token_out"],
+                "token_in_sym": self.pair["in_sym"], "token_out_sym": self.pair["out_sym"],
+                "chain_id": self.pair["chain_id"], "price_usd": price,
+                "signal": "weak",
+                "reason": f"Fallback — scanner offline · {self.pair['in_sym']}/{self.pair['out_sym']}",
+                "amount_in_wei": self.pair["amount_wei"],
+            }
+        else:
+            sig = scan.best.to_signal_payload(self.pair["amount_wei"])
+
         await self._safe(mems["researcher"].update_status, self._status("SCANNING"),
                          last_signal=sig)
         await self._safe(mems["researcher"].log_event, self._evt("MARKET_SIGNAL"), sig)
-        print(f"   Price: {h(f'${price:,.2f}', C.GREEN)}   Strength: {h(sig['signal'], C.YELLOW)}")
+        print(
+            f"\n   ★ Pick:  {h(f'{sig['token_in_sym']} → {sig['token_out_sym']}', C.CYAN)}"
+            f"   price: {h(f'${sig['price_usd']:,.2f}', C.GREEN)}"
+            f"   strength: {h(sig['signal'], C.YELLOW)}"
+        )
 
         # ── Risk ──────────────────────────────────────────────────────────────
         print(f"\n{h('② Risk Agent', C.PURPLE)}  scoring via 0G Compute…")
@@ -149,17 +167,26 @@ class SwarmFiDemo:
         await self._safe(mems["risk"].update_status, self._status("IDLE"), last_risk_score=risk)
         await self._safe(mems["risk"].log_event, self._evt("RISK_DECISION"), dec)
 
+        # Enrich the signal record with friendly symbols for the dashboard
+        sig_view = dict(sig)
+        sig_view["token_in_sym"]  = self.pair["in_sym"]
+        sig_view["token_out_sym"] = self.pair["out_sym"]
+
         if action == "hold":
             block_reason = dec.get("rejection_reason", "risk gate")
             print(f"   {h('⚠ BLOCKED', C.RED)}: {block_reason}")
             await self._safe(mems["executor"].log_event, self._evt("TRADE_FAILED"),
                              {"action": "HOLD", "reason": block_reason})
-            self._results.append({"cycle": cycle, "action": "hold", "risk": risk})
+            self._results.append({
+                "cycle": cycle, "action": "hold", "risk": risk,
+                "confidence": conf, "reasoning": reason,
+                "signal": sig_view,
+            })
             return
 
         # ── Executor ──────────────────────────────────────────────────────────
         wallet = os.getenv("WALLET_ADDRESS", "")
-        print(f"\n{h('③ Executor', C.GREEN)}  Uniswap quote → KeeperHub guaranteed broadcast")
+        print(f"\n{h('③ Executor', C.GREEN)}  Uniswap price oracle → KeeperHub treasury commitment")
         if not wallet:
             print(f"   {h('ℹ dry-run (set WALLET_ADDRESS for real swaps)', C.YELLOW)}")
 
@@ -175,21 +202,34 @@ class SwarmFiDemo:
         elapsed = round(time.monotonic() - started, 2)
 
         if result.succeeded or result.status.value == "submitted":
-            tx = result.tx_hash or "dry-run"
-            print(f"   {h('✓ EXECUTED', C.GREEN)}")
-            print(f"   Tx:      {h(tx[:22]+'…', C.CYAN) if len(tx) > 22 else h(tx, C.CYAN)}")
+            tx = result.tx_hash or (result.error and "queued") or "dry-run"
+            label = "✓ EXECUTED" if result.tx_hash else "✓ SUBMITTED to KeeperHub"
+            print(f"   {h(label, C.GREEN)}")
+            if result.tx_hash:
+                print(f"   Tx:      {h(tx[:22]+'…', C.CYAN) if len(tx) > 22 else h(tx, C.CYAN)}")
+            else:
+                print(f"   Status:  {h('queued · settlement deferred to KH dashboard', C.CYAN)}")
             print(f"   Routing: {result.routing.value if result.routing else 'CLASSIC'}")
             if result.gas_used:
                 print(f"   Gas:     {result.gas_used:,}")
-            print(f"   Time:    {elapsed}s  (Uniswap → KeeperHub → confirmed)")
+            print(f"   Time:    {elapsed}s  (Uniswap quote → KeeperHub broadcast → audit)")
             await self._safe(mems["executor"].update_status, self._status("IDLE"), last_tx_hash=tx)
             await self._safe(mems["executor"].log_event, self._evt("TRADE_EXECUTED"), result.to_log_data())
-            self._results.append({"cycle": cycle, "action": action, "risk": risk, "tx": tx})
+            self._results.append({
+                "cycle": cycle, "action": action, "risk": risk, "tx": tx,
+                "confidence": conf, "reasoning": reason,
+                "routing": result.routing.value if result.routing else "CLASSIC",
+                "signal": sig_view,
+            })
         else:
             print(f"   {h('✗ FAILED', C.RED)}: {result.error}")
             await self._safe(mems["executor"].update_status, self._status("ERROR"))
             await self._safe(mems["executor"].log_event, self._evt("TRADE_FAILED"), result.to_log_data())
-            self._results.append({"cycle": cycle, "action": action, "risk": risk, "error": result.error})
+            self._results.append({
+                "cycle": cycle, "action": action, "risk": risk,
+                "error": result.error, "confidence": conf, "reasoning": reason,
+                "signal": sig_view,
+            })
 
         # ── 0G state readback ─────────────────────────────────────────────────
         print(f"\n{h('④ 0G Storage', C.GREY)}  reading shared swarm state…")
@@ -209,9 +249,61 @@ class SwarmFiDemo:
         try:
             await asyncio.wait_for(fn(*args, **kwargs), timeout=200)
         except asyncio.TimeoutError:
-            print(f"   {C.YELLOW}⚠ 0G upload timeout — continuing{C.RESET}")
-        except Exception as exc:
+            # Buffered mode means writes are instant; this only fires in
+            # legacy every-write-tx mode. Keep quiet — we'll surface via flush.
+            pass
+        except Exception:
             pass  # storage failures never crash the demo
+
+    async def _flush_storage(self, zg) -> None:
+        """Commit all buffered swarm state to 0G as one on-chain snapshot."""
+        if not getattr(zg, "is_buffered", False):
+            self._snapshot_root = None
+            self._publish_state_to_dashboard(zg, snapshot_root=None)
+            return
+        print(f"\n{h('⑤ 0G Storage', C.GREY)}  committing swarm snapshot to testnet…")
+        entries = zg.buffered_entry_count
+        try:
+            root = await asyncio.wait_for(zg.flush(), timeout=240)
+            self._snapshot_root = root
+            if root:
+                short = root if len(root) <= 22 else root[:18] + "…"
+                print(f"   {h('✓ committed', C.GREEN)}   "
+                      f"entries: {h(str(entries), C.CYAN)}   "
+                      f"root: {h(short, C.CYAN)}")
+            else:
+                print(f"   {C.GREY}(nothing to commit){C.RESET}")
+        except asyncio.TimeoutError:
+            self._snapshot_root = None
+            print(f"   {C.YELLOW}⚠ snapshot tx timed out — buffered state intact locally{C.RESET}")
+        except Exception as exc:
+            self._snapshot_root = None
+            print(f"   {C.YELLOW}⚠ snapshot failed: {str(exc)[:60]}{C.RESET}")
+
+        # Publish a local view so the dashboard (separate process) can see state
+        self._publish_state_to_dashboard(zg, snapshot_root=self._snapshot_root)
+
+    def _publish_state_to_dashboard(self, zg, snapshot_root: str | None) -> None:
+        """
+        Write a JSON sidecar with the current swarm view so the dashboard
+        process (which has its own memory) can render real state and the
+        chat AI can ground its replies in actual data.
+        """
+        try:
+            import json as _json
+            from datetime import datetime, timezone
+            out_dir = Path(__file__).parent / "logs"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            view = {
+                "updated_at":     datetime.now(tz=timezone.utc).isoformat(),
+                "snapshot_root":  snapshot_root,
+                "cycles":         len(self._results),
+                "results":        self._results[-20:],
+                "pair":           self.pair,
+            }
+            (out_dir / "swarmfi-state.json").write_text(_json.dumps(view, indent=2))
+        except Exception:
+            pass  # never let dashboard publishing crash the demo
 
     def _status(self, s: str):
         from core.storage.models import AgentStatus
@@ -250,6 +342,10 @@ class SwarmFiDemo:
         if executed:
             avg = sum(r["risk"] for r in executed) / len(executed)
             print(f"  Avg risk on executed trades: {avg:.1f}/10")
+        snap = getattr(self, "_snapshot_root", None)
+        if snap:
+            short = snap if len(snap) <= 26 else snap[:22] + "…"
+            print(f"  0G snapshot:  {h(short, C.CYAN)}")
         print(f"\n  Dashboard: {h('http://127.0.0.1:8080', C.CYAN)}\n")
 
     def _make(self, svc: str):

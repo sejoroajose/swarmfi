@@ -202,11 +202,17 @@ persisted on 0G Storage as one snapshot per cycle — the snapshot root is
 visible in the dashboard summary.
 
 How to answer:
-  - Always ground responses in the SWARM CONTEXT block below. Reference
-    real numbers from it (risk scores, prices, root hashes, tx hashes).
-  - If the user asks something the swarm doesn't actually do (price
-    prediction, custom indicator analysis, news scraping), say so plainly
-    in one sentence and pivot to what the swarm CAN do.
+  - Always ground responses in the SWARM CONTEXT and LIVE MARKET SCAN
+    blocks below. Reference real numbers from them — current prices,
+    24h momentum, composite edge scores, risk scores, root hashes,
+    tx hashes.
+  - If the user asks "what is X price" or "what's the best opportunity",
+    answer from the LIVE MARKET SCAN block — that's regenerated on every
+    request, so it IS real-time. Never claim 'I can't see live prices'.
+  - The scan covers ETH, WETH, USDC, USDT, and cbBTC (BTC-pegged) on
+    Base. Yes, that means you DO have live BTC pricing via cbBTC.
+  - If a user asks for a token NOT in the scan (e.g. SOL, AVAX), say so
+    plainly — the swarm only scans Base bluechips by design.
   - When explaining a sponsor (0G / Uniswap / KeeperHub / Gensyn / ENS),
     describe the role it plays in THIS swarm, not the product in general.
   - Be terse. 4–8 sentences usually. No bullet-list essays unless asked.
@@ -229,6 +235,28 @@ async def _build_swarm_context() -> str:
     except Exception:
         state, log = {}, []
 
+    # Live multi-pair scanner — this is what gives the AI access to fresh
+    # prices, 24h momentum, and the current best opportunity. Without this
+    # the chat agent only sees the *last completed cycle* which can be many
+    # minutes stale and reads as broken to the user.
+    scan_block: list[str] = []
+    try:
+        from core.scanner import scan_pairs
+        scan = await scan_pairs()
+        if scan and scan.ranked:
+            scan_block.append("LIVE MARKET SCAN (regenerated this request, all Base bluechips):")
+            for s in scan.ranked:
+                star = " ★ best" if s is scan.best else ""
+                scan_block.append(
+                    f"  - {s.pair.label:<14}"
+                    f"price=${s.price_usd:>10,.2f}  "
+                    f"24h={s.momentum_24h:+.2f}%  "
+                    f"edge={s.composite:.2f}  "
+                    f"signal={s.signal}{star}"
+                )
+    except Exception:
+        pass
+
     cfg = _swarm_config
     pair = cfg.get("default_pair", {})
     lines = ["SWARM CONTEXT (live, regenerated each request):"]
@@ -238,6 +266,11 @@ async def _build_swarm_context() -> str:
         f"risk_threshold={cfg.get('risk_threshold','?')} "
         f"amount_in_wei={cfg.get('amount_in_wei','?')} "
         f"auto_trade={cfg.get('auto_trade', False)}"
+    )
+    lines.append(
+        "  note: 'auto_trade=False' means the swarm runs cycles ONLY on demand "
+        "(via /api/signal or the 'Run a cycle' button). Each manual cycle still "
+        "executes a real trade decision via the executor agent."
     )
 
     snap = (state or {}).get("snapshot_root") or os.getenv("SWARMFI_SNAPSHOT_ROOT", "").strip()
@@ -255,6 +288,11 @@ async def _build_swarm_context() -> str:
             )
     else:
         lines.append("  agents_seen: 0  (no on-chain snapshot loaded yet)")
+
+    if scan_block:
+        lines.append("")
+        lines.extend(scan_block)
+        lines.append("")
 
     if log:
         lines.append(f"  recent_events ({len(log)}):")

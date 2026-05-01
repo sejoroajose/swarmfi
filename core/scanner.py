@@ -184,28 +184,68 @@ def _build_reasoning(p: PairSpec, mom_pct: float, signal: str, composite: float)
 
 
 # ── Live price fetcher (CoinGecko, no API key needed) ─────────────────────────
+#
+# CoinGecko's free tier hard-rate-limits at ~10–30 req/min. The dashboard
+# polls /api/scan every 1.5s and chat calls scan_pairs() on every message —
+# without caching we'd burst through the limit in seconds, get 429s, and
+# silently fall back to all-zero prices. So we serve from an in-process TTL
+# cache; only refetch when stale.
 
-_COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+_COINGECKO_URL  = "https://api.coingecko.com/api/v3/simple/price"
+_CACHE_TTL_SECS = 30  # one fetch every 30s is well under any free-tier cap
+
+import asyncio as _asyncio
+import time as _time
+
+_price_cache: dict[str, dict[str, float]] = {}
+_price_cache_at: float = 0.0
+_price_lock = _asyncio.Lock()
 
 
 async def _fetch_prices(coingecko_ids: list[str]) -> dict[str, dict[str, float]]:
     """
-    Fetch USD price + 24h change for a list of coingecko IDs in one request.
+    Fetch USD price + 24h change for a list of coingecko IDs.
+    Cached for _CACHE_TTL_SECS to stay under CoinGecko's free-tier rate limit.
     Returns {id: {"usd": float, "usd_24h_change": float}}.
     """
+    global _price_cache, _price_cache_at
     import httpx
-    ids = ",".join(sorted(set(coingecko_ids)))
-    try:
-        async with httpx.AsyncClient(timeout=8) as c:
-            r = await c.get(_COINGECKO_URL, params={
-                "ids": ids,
-                "vs_currencies": "usd",
-                "include_24hr_change": "true",
-            })
-            return r.json() or {}
-    except Exception as exc:
-        log.warning("CoinGecko fetch failed", error=str(exc))
-        return {}
+
+    now = _time.time()
+    # Serve from cache if fresh AND covers every requested ID
+    if (now - _price_cache_at) < _CACHE_TTL_SECS and all(i in _price_cache for i in coingecko_ids):
+        return {i: _price_cache[i] for i in coingecko_ids}
+
+    # Single in-flight refresh — multiple concurrent requests share one fetch
+    async with _price_lock:
+        # Re-check after acquiring the lock (another caller may have refreshed)
+        now = _time.time()
+        if (now - _price_cache_at) < _CACHE_TTL_SECS and all(i in _price_cache for i in coingecko_ids):
+            return {i: _price_cache[i] for i in coingecko_ids}
+
+        ids = ",".join(sorted(set(coingecko_ids)))
+        try:
+            async with httpx.AsyncClient(timeout=8) as c:
+                r = await c.get(_COINGECKO_URL, params={
+                    "ids":                 ids,
+                    "vs_currencies":       "usd",
+                    "include_24hr_change": "true",
+                })
+                # On 429 (rate limited) keep returning the stale cache so the UI
+                # never shows $0.00 — better an old price than no price.
+                if r.status_code == 200:
+                    fresh = r.json() or {}
+                    if fresh:
+                        _price_cache.update(fresh)
+                        _price_cache_at = now
+                        return {i: _price_cache.get(i, {}) for i in coingecko_ids}
+                else:
+                    log.warning("CoinGecko non-200", status=r.status_code)
+        except Exception as exc:
+            log.warning("CoinGecko fetch failed", error=str(exc))
+
+        # Network error / 429 / empty body — fall back to whatever we have
+        return {i: _price_cache.get(i, {}) for i in coingecko_ids}
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

@@ -343,14 +343,19 @@ class KeeperHubSwapExecutor:
 
         # Where the commitment goes. Self-transfer to the keeper by default —
         # safest, since the keeper's address is already funded and the
-        # transfer is just a "decision marker" on-chain.
+        # transfer is just a "decision marker" on-chain. Fall back to the
+        # configured wallet_address (e.g. in tests) if no env vars are set.
         keeper_addr = (_os.getenv("KH_KEEPER_ADDRESS") or "").strip()
-        recipient   = (_os.getenv("SWARMFI_COMMITMENT_RECIPIENT") or "").strip() or keeper_addr
+        recipient = (
+            (_os.getenv("SWARMFI_COMMITMENT_RECIPIENT") or "").strip()
+            or keeper_addr
+            or self._wallet
+        )
         if not recipient:
             return _ExecStatus(
                 execution_id="",
                 status=KHExecutionStatus.FAILED,
-                error="No recipient — set KH_KEEPER_ADDRESS or SWARMFI_COMMITMENT_RECIPIENT in .env",
+                error="No recipient — set KH_KEEPER_ADDRESS or pass wallet_address",
             )
 
         # Commitment size — small fixed amount so demo runs are cheap.

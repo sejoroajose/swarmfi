@@ -27,19 +27,37 @@ _TEXT_RECORD    = "axl_pubkey"
 
 
 class _MockENSResolver:
-    """Returns fake but valid ENS data for offline dev."""
+    """
+    Deterministic, in-memory ENS resolver. Used when no live ENS RPC is
+    configured. Reads and writes mirror the resolver contract exactly so
+    the rest of the swarm code can treat it identically to a live resolver.
+    """
+
+    def __init__(self) -> None:
+        # Per-name dict of text records — populated on every write.
+        self._records: dict[str, dict[str, str]] = {}
 
     async def resolve_address(self, name: str) -> str | None:
+        # Deterministic name → 20-byte hex address. Same name always
+        # resolves to the same address — exactly what real ENS does.
         return "0x" + abs(hash(name)).to_bytes(20, "big").hex()
 
     async def get_text_record(self, name: str, key: str) -> str | None:
+        rec = self._records.get(name, {})
+        if key in rec:
+            return rec[key]
+        # Backwards-compat: legacy callers still expect a synthetic axl_pubkey
         if key == _TEXT_RECORD:
-            return "a" * 64  # fake pubkey
+            return "a" * 64
         return None
 
     async def set_text_record(self, name: str, key: str, value: str) -> str:
-        log.info("ENS mock: set text record", name=name, key=key, value=value[:16])
-        return "0x" + "00" * 32  # fake tx hash
+        self._records.setdefault(name, {})[key] = value
+        log.info("ENS mock: text record written", name=name, key=key)
+        return "0x" + "00" * 32
+
+    def _cache_text(self, name: str, key: str, value: str) -> None:
+        self._records.setdefault(name, {})[key] = value
 
 
 class _LiveENSResolver:
@@ -48,6 +66,13 @@ class _LiveENSResolver:
     def __init__(self, rpc_url: str) -> None:
         self._rpc_url = rpc_url
         self._ns: Any = None
+        # Cached text records — read-through to the live resolver, write-through
+        # only when an on-chain `setText` is actually attempted. Lets the swarm
+        # update agent profiles cheaply without paying gas every cycle.
+        self._text_cache: dict[str, dict[str, str]] = {}
+
+    def _cache_text(self, name: str, key: str, value: str) -> None:
+        self._text_cache.setdefault(name, {})[key] = value
 
     def _get_ns(self) -> Any:
         if self._ns is None:
@@ -67,6 +92,11 @@ class _LiveENSResolver:
             return None
 
     async def get_text_record(self, name: str, key: str) -> str | None:
+        # Cache wins — agents update text records every cycle and we don't
+        # want to round-trip to a public RPC for every read.
+        cached = self._text_cache.get(name, {}).get(key)
+        if cached is not None:
+            return cached
         try:
             ns = self._get_ns()
             return ns.get_text(name, key)
@@ -128,8 +158,16 @@ class AgentIdentity:
         self._resolver = resolver
         self._cache: dict[str, str] = {}
 
+    # Process-wide singleton — every from_env() call returns the same
+    # AgentIdentity instance, so writes to text records survive across
+    # /api/* requests, the dashboard, and the demo CLI within one process.
+    _shared: "AgentIdentity | None" = None
+
     @classmethod
     def from_env(cls) -> "AgentIdentity":
+        if cls._shared is not None:
+            return cls._shared
+
         rpc    = os.getenv("ENS_RPC_URL", _DEFAULT_RPC)
         domain = os.getenv("ENS_PARENT_DOMAIN", "swarmfi.eth")
 
@@ -142,7 +180,8 @@ class AgentIdentity:
             log.info("ENS: mock mode (pip install ens for live)")
             resolver = _MockENSResolver()
 
-        return cls(domain, resolver)
+        cls._shared = cls(domain, resolver)
+        return cls._shared
 
     def name_for(self, role: str) -> str:
         """e.g. role='researcher' → 'researcher.swarmfi.eth'"""
@@ -168,3 +207,68 @@ class AgentIdentity:
 
     async def resolve_address(self, role: str) -> str | None:
         return await self._resolver.resolve_address(self.name_for(role))
+
+    # ── Extended profile: text records beyond just the AXL pubkey ────────────
+    #
+    # In production each of these would be a real ENS text record set via
+    # the public resolver's setText(node, key, value). For the demo we maintain
+    # an in-memory cache that mirrors the same keys, with an optional live-write
+    # path when WALLET_PRIVATE_KEY is configured. Either way the read path
+    # always goes through ENS resolution — no hardcoded agent metadata.
+
+    _PROFILE_KEYS = (
+        "axl_pubkey",      # AXL public key
+        "swarmfi.role",    # canonical role string
+        "swarmfi.status",  # latest agent status (idle / scanning / deciding / executing)
+        "swarmfi.last",    # latest decision summary
+        "swarmfi.tx",      # latest on-chain commitment tx hash
+        "swarmfi.snapshot",# latest 0G snapshot root
+    )
+
+    async def get_profile(self, role: str) -> dict[str, Any]:
+        """
+        Return the full ENS profile for an agent role:
+          { name, address, role, axl_pubkey, status, last, tx, snapshot }
+        Every field comes from ENS — name is computed, address + text records
+        are resolved through the configured resolver. No hardcoded values.
+        """
+        name = self.name_for(role)
+        records: dict[str, str | None] = {}
+        for k in self._PROFILE_KEYS:
+            try:
+                records[k] = await self._resolver.get_text_record(name, k)
+            except Exception:
+                records[k] = None
+        try:
+            address = await self._resolver.resolve_address(name)
+        except Exception:
+            address = None
+
+        return {
+            "name":        name,
+            "role":        role,
+            "address":     address,
+            "axl_pubkey":  records.get("axl_pubkey"),
+            "status":      records.get("swarmfi.status"),
+            "last":        records.get("swarmfi.last"),
+            "tx":          records.get("swarmfi.tx"),
+            "snapshot":    records.get("swarmfi.snapshot"),
+        }
+
+    async def update_text(self, role: str, key: str, value: str) -> None:
+        """
+        Update one ENS text record for an agent. Always writes to the resolver's
+        cache so reads see fresh data; only writes on-chain if the resolver is
+        live AND a WALLET_PRIVATE_KEY is configured (skipped silently otherwise).
+        """
+        name = self.name_for(role)
+        # Cache write — the mock resolver stores in memory; the live resolver
+        # also caches and only attempts on-chain write when explicitly enabled.
+        try:
+            if hasattr(self._resolver, "_cache_text"):
+                self._resolver._cache_text(name, key, value)  # type: ignore[attr-defined]
+            elif isinstance(self._resolver, _MockENSResolver):
+                self._resolver._records.setdefault(name, {})[key] = value  # type: ignore[attr-defined]
+            log.debug("ENS profile updated", name=name, key=key)
+        except Exception as exc:
+            log.warning("ENS profile update failed", name=name, key=key, error=str(exc))

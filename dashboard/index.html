@@ -405,6 +405,39 @@ header{
 .scan-tbl .signal-medium{background:var(--amber-soft);color:var(--amber)}
 .scan-tbl .signal-weak{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
 
+/* ── ENS profile table ──────────────────────────────────────────── */
+.ens-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.ens-tbl thead th{
+  background:var(--surface-2);text-align:left;padding:11px 16px;
+  font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+.ens-tbl tbody td{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--ink);vertical-align:top}
+.ens-tbl tbody tr:last-child td{border-bottom:none}
+.ens-name{font-family:var(--serif);font-size:14px;font-weight:600;color:var(--ink);font-style:normal}
+.ens-addr{color:var(--muted);font-size:10.5px;margin-top:2px}
+.ens-records{display:flex;flex-direction:column;gap:4px}
+.ens-rec{display:flex;gap:10px;align-items:baseline}
+.ens-rec-k{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;min-width:78px}
+.ens-rec-v{color:var(--ink);font-size:11.5px;word-break:break-all}
+.ens-rec-v.empty{color:var(--faint);font-style:italic}
+
+/* ── AXL P2P table ──────────────────────────────────────────────── */
+.axl-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.axl-tbl thead th{
+  background:var(--surface-2);text-align:left;padding:11px 16px;
+  font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+.axl-tbl tbody td{padding:11px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+.axl-tbl tbody tr:last-child td{border-bottom:none}
+.axl-flow{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.axl-flow .arrow{color:var(--accent);font-weight:700}
+.axl-mtype{
+  font-size:10px;letter-spacing:.4px;font-weight:700;text-transform:uppercase;
+  padding:3px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);
+}
+
 /* ── Timeline ───────────────────────────────────────────────────── */
 .timeline{display:flex;flex-direction:column;gap:6px}
 .tl-row{
@@ -706,10 +739,36 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
   </section>
 
 
-  <!-- TIMELINE -->
+  <!-- ENS-BACKED AGENT IDENTITIES -->
   <section class="section">
     <div class="section-hdr">
       <span class="section-num">04</span>
+      <span class="section-title">Agent identities · ENS profiles</span>
+      <span class="section-line"></span>
+      <span class="section-meta tip" data-tip="Each agent's identity is resolved through ENS at runtime. The dashboard never hardcodes addresses — it reads name → address + text records through our ENS resolver. Live updates after every cycle.">resolved on every poll</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="ens-table"><div class="story-empty">Resolving agent profiles via ENS…</div></div>
+    </div>
+  </section>
+
+  <!-- AXL P2P MESSAGE STREAM -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">05</span>
+      <span class="section-title">AXL peer-to-peer messages</span>
+      <span class="section-line"></span>
+      <span class="section-meta tip" data-tip="Real /send calls between separate Gensyn AXL nodes — researcher ↔ risk ↔ executor. Verifiable in axl/logs/.">inter-node, encrypted</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="axl-table"><div class="story-empty">No AXL messages yet — run a cycle to see inter-agent comms.</div></div>
+    </div>
+  </section>
+
+  <!-- TIMELINE -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">06</span>
       <span class="section-title">Event timeline</span>
       <span class="section-line"></span>
       <span class="section-meta" id="log-update">—</span>
@@ -1130,18 +1189,82 @@ function renderScan(scan) {
   </table>`;
 }
 
+function renderEns(data) {
+  const root = document.getElementById("ens-table");
+  if (!root) return;
+  const agents = (data && data.agents) || [];
+  if (!agents.length) {
+    root.innerHTML = '<div class="story-empty">No agent profiles available.</div>';
+    return;
+  }
+  const rows = agents.map(a => {
+    const addr = a.address ? SHORT(a.address) : '<span class="empty">unset</span>';
+    const v = (val) => val ? String(val) : '<span class="ens-rec-v empty">—</span>';
+    const txCell = a.tx
+      ? `<a href="${explorerForTx(a.tx)}" target="_blank" style="color:var(--green)">${SHORT(a.tx)}</a>`
+      : '<span class="ens-rec-v empty">—</span>';
+    return `<tr>
+      <td style="min-width:200px">
+        <div class="ens-name">${a.name}</div>
+        <div class="ens-addr copyable" title="${a.address || ""}">${addr}</div>
+      </td>
+      <td>
+        <div class="ens-records">
+          <div class="ens-rec"><span class="ens-rec-k">role</span><span class="ens-rec-v">${v(a.role)}</span></div>
+          <div class="ens-rec"><span class="ens-rec-k">status</span><span class="ens-rec-v">${v(a.status)}</span></div>
+          <div class="ens-rec"><span class="ens-rec-k">last</span><span class="ens-rec-v">${v(a.last)}</span></div>
+          <div class="ens-rec"><span class="ens-rec-k">tx</span>${txCell}</div>
+          <div class="ens-rec"><span class="ens-rec-k">snapshot</span><span class="ens-rec-v">${a.snapshot ? SHORT(a.snapshot) : '<span class="empty">—</span>'}</span></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="ens-tbl">
+    <thead><tr><th>ENS name</th><th>SwarmFi text records (resolved live)</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderAxl(data) {
+  const root = document.getElementById("axl-table");
+  if (!root) return;
+  const events = (data && data.events) || [];
+  if (!events.length) {
+    root.innerHTML = '<div class="story-empty">No AXL messages yet — run a cycle to see inter-agent comms.</div>';
+    return;
+  }
+  const rows = events.slice().reverse().map(e => {
+    const t = e.ts ? new Date(e.ts).toLocaleTimeString() : "—";
+    return `<tr>
+      <td style="color:var(--muted)">${t}</td>
+      <td><span class="axl-flow"><span>${e.from}</span><span class="arrow">→</span><span>${e.to}</span></span></td>
+      <td><span class="axl-mtype">${(e.message_type||"").replace(/_/g," ")}</span></td>
+      <td style="color:var(--ink)">${e.summary || ""}</td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="axl-tbl">
+    <thead><tr><th>Time</th><th>Flow</th><th>Type</th><th>Summary</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 async function poll() {
   try {
-    const [sr, lr, scn] = await Promise.all([
+    const [sr, lr, scn, axl, ens] = await Promise.all([
       fetch("/api/state"), fetch("/api/log"), fetch("/api/scan"),
+      fetch("/api/axl"),   fetch("/api/agents"),
     ]);
-    const state = await sr.json();
-    const log   = await lr.json();
-    const scan  = await scn.json().catch(() => ({}));
+    const state    = await sr.json();
+    const log      = await lr.json();
+    const scan     = await scn.json().catch(() => ({}));
+    const axlData  = await axl.json().catch(() => ({events:[]}));
+    const ensData  = await ens.json().catch(() => ({agents:[]}));
     const ctx = renderState(state);
     renderNarrator(ctx, state.in_progress);
     renderLog(log);
     renderScan(scan);
+    renderAxl(axlData);
+    renderEns(ensData);
 
     document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
     document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();

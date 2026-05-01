@@ -114,6 +114,9 @@ class SwarmFiDemo:
         from core.compute.risk_scorer import RiskScorer
         from core.keeperhub.executor import KeeperHubSwapExecutor
         from core.scanner import scan_pairs, format_scan_table
+        from core import axl_bus
+        from core.ens.resolver import AgentIdentity
+        identity = AgentIdentity.from_env()
         started = time.monotonic()
 
         # ── Researcher ────────────────────────────────────────────────────────
@@ -142,6 +145,20 @@ class SwarmFiDemo:
             f"   strength: {h(sig['signal'], C.YELLOW)}"
         )
 
+        # ENS: write researcher's latest scan into its text records
+        await identity.update_text("researcher", "swarmfi.role",   "market_scanner")
+        await identity.update_text("researcher", "swarmfi.status", "scanning")
+        await identity.update_text(
+            "researcher", "swarmfi.last",
+            f"{sig.get('token_in_sym','?')}→{sig.get('token_out_sym','?')} "
+            f"@ ${float(sig.get('price_usd',0)):,.2f} · {sig.get('signal','?')}"
+        )
+
+        # AXL: researcher broadcasts the signal to the risk node
+        axl_evt = await axl_bus.announce_market_signal(sig)
+        if axl_evt:
+            print(f"   {C.GREY}↪ AXL: researcher → risk · MARKET_SIGNAL{C.RESET}")
+
         # ── Risk ──────────────────────────────────────────────────────────────
         print(f"\n{h('② Risk Agent', C.PURPLE)}  scoring via 0G Compute…")
         await self._safe(mems["risk"].update_status, self._status("DECIDING"))
@@ -166,6 +183,19 @@ class SwarmFiDemo:
 
         await self._safe(mems["risk"].update_status, self._status("IDLE"), last_risk_score=risk)
         await self._safe(mems["risk"].log_event, self._evt("RISK_DECISION"), dec)
+
+        # ENS: write risk's decision summary
+        await identity.update_text("risk", "swarmfi.role",   "ai_risk_scoring")
+        await identity.update_text("risk", "swarmfi.status", "idle")
+        await identity.update_text(
+            "risk", "swarmfi.last",
+            f"{str(action).upper()} · risk {risk:.1f}/10 · conf {round(conf*100)}%"
+        )
+
+        # AXL: risk broadcasts the decision to the executor node
+        axl_evt = await axl_bus.announce_trade_decision(dec)
+        if axl_evt:
+            print(f"   {C.GREY}↪ AXL: risk → executor · TRADE_DECISION{C.RESET}")
 
         # Enrich the signal record with friendly symbols for the dashboard
         sig_view = dict(sig)
@@ -215,6 +245,26 @@ class SwarmFiDemo:
             print(f"   Time:    {elapsed}s  (Uniswap quote → KeeperHub broadcast → audit)")
             await self._safe(mems["executor"].update_status, self._status("IDLE"), last_tx_hash=tx)
             await self._safe(mems["executor"].log_event, self._evt("TRADE_EXECUTED"), result.to_log_data())
+
+            # ENS: write executor's commitment into its text records
+            await identity.update_text("executor", "swarmfi.role",   "uniswap_keeperhub")
+            await identity.update_text("executor", "swarmfi.status", "idle")
+            if result.tx_hash:
+                await identity.update_text("executor", "swarmfi.tx", result.tx_hash)
+                await identity.update_text(
+                    "executor", "swarmfi.last",
+                    f"{result.routing.value if result.routing else 'CLASSIC'} · "
+                    f"tx {result.tx_hash[:12]}…"
+                )
+
+            # AXL: executor closes the loop back to researcher
+            axl_evt = await axl_bus.announce_execution_result({
+                "tx_hash": result.tx_hash,
+                "status":  result.status.value,
+                "routing": result.routing.value if result.routing else None,
+            })
+            if axl_evt:
+                print(f"   {C.GREY}↪ AXL: executor → researcher · EXECUTION_RESULT{C.RESET}")
             self._results.append({
                 "cycle": cycle, "action": action, "risk": risk, "tx": tx,
                 "confidence": conf, "reasoning": reason,

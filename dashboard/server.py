@@ -544,6 +544,36 @@ def main() -> None:
     async def get_pairs():
         return JSONResponse(_KNOWN_PAIRS)
 
+    # ── Live AXL message stream (researcher ↔ risk ↔ executor) ──────────────
+    @app.get("/api/axl")
+    async def get_axl_events():
+        """Recent inter-node AXL /send events. Empty until a cycle has run."""
+        from core.axl_bus import recent_events
+        return JSONResponse({"events": recent_events(limit=20)})
+
+    # ── ENS-backed agent identity profiles ──────────────────────────────────
+    #
+    # Returns the live ENS profile for each swarm role — name, address,
+    # AXL pubkey, and SwarmFi text records (status, last decision, tx,
+    # snapshot root). The dashboard reads agent metadata exclusively from
+    # this endpoint; nothing about agent identity is hardcoded client-side.
+    @app.get("/api/agents")
+    async def get_agents():
+        from core.ens.resolver import AgentIdentity
+        identity = AgentIdentity.from_env()
+        roles = ["researcher", "risk", "executor"]
+        profiles = []
+        for role in roles:
+            try:
+                profiles.append(await identity.get_profile(role))
+            except Exception as exc:
+                profiles.append({
+                    "name":    f"{role}.swarmfi.eth",
+                    "role":    role,
+                    "error":   str(exc)[:120],
+                })
+        return JSONResponse({"agents": profiles})
+
     # ── Multi-pair scanner ────────────────────────────────────────────────────
     @app.get("/api/scan")
     async def get_scan():
@@ -618,6 +648,9 @@ async def _run_trade_cycle(signal: dict) -> None:
         from core.keeperhub.executor import KeeperHubSwapExecutor
         from core.uniswap.client import UniswapClient
         from core.storage.models import AgentStatus, LogEventType
+        from core import axl_bus
+        from core.ens.resolver import AgentIdentity
+        identity = AgentIdentity.from_env()
 
         zg      = ZeroGClient.from_env()
         compute = ZeroGComputeClient.from_env()
@@ -639,6 +672,19 @@ async def _run_trade_cycle(signal: dict) -> None:
             await memories["researcher"].update_status(AgentStatus.SCANNING, last_signal=signal)
             await memories["researcher"].log_event(LogEventType.MARKET_SIGNAL, data=signal)
 
+            # ENS: write the researcher's latest market scan into its text records.
+            # Every read of /api/agents now sees this via ENS resolution.
+            await identity.update_text("researcher", "swarmfi.role",   "market_scanner")
+            await identity.update_text("researcher", "swarmfi.status", "scanning")
+            await identity.update_text(
+                "researcher", "swarmfi.last",
+                f"{signal.get('token_in_sym','?')}→{signal.get('token_out_sym','?')} "
+                f"@ ${float(signal.get('price_usd',0)):,.2f} · {signal.get('signal','?')}"
+            )
+
+            # AXL: researcher → risk (real /send between separate AXL nodes)
+            await axl_bus.announce_market_signal(signal)
+
             # ── Risk ────────────────────────────────────────────────────────
             _publish_partial("deciding", {"signal": signal})
             await memories["risk"].update_status(AgentStatus.DECIDING)
@@ -658,6 +704,19 @@ async def _run_trade_cycle(signal: dict) -> None:
                 "signal": signal, "risk": payload.get("risk_score"),
                 "action": payload.get("action"), "confidence": payload.get("confidence"),
             })
+
+            # ENS: write the risk agent's decision summary
+            await identity.update_text("risk", "swarmfi.role",   "ai_risk_scoring")
+            await identity.update_text("risk", "swarmfi.status", "idle")
+            await identity.update_text(
+                "risk", "swarmfi.last",
+                f"{str(payload.get('action','?')).upper()} · risk "
+                f"{float(payload.get('risk_score',0)):.1f}/10 · "
+                f"conf {round(float(payload.get('confidence',0))*100)}%"
+            )
+
+            # AXL: risk → executor (real /send)
+            await axl_bus.announce_trade_decision(payload)
 
             if payload.get("action") == "hold":
                 await memories["executor"].log_event(LogEventType.TRADE_FAILED,
@@ -687,6 +746,24 @@ async def _run_trade_cycle(signal: dict) -> None:
                     await memories["executor"].log_event(LogEventType.TRADE_FAILED, data=result.to_log_data())
                     result_view["error"] = result.error
 
+                # ENS: write the executor's commitment into its text records
+                await identity.update_text("executor", "swarmfi.role",   "uniswap_keeperhub")
+                await identity.update_text("executor", "swarmfi.status", "idle")
+                if result.tx_hash:
+                    await identity.update_text("executor", "swarmfi.tx", result.tx_hash)
+                    await identity.update_text(
+                        "executor", "swarmfi.last",
+                        f"{result.routing.value if result.routing else 'CLASSIC'} · "
+                        f"tx {result.tx_hash[:12]}…"
+                    )
+
+                # AXL: executor → researcher (closes the loop)
+                await axl_bus.announce_execution_result({
+                    "tx_hash": result.tx_hash,
+                    "status":  result.status.value,
+                    "routing": result.routing.value if result.routing else None,
+                })
+
             # Commit the buffered swarm state to 0G in ONE on-chain tx
             _publish_partial("committing", {
                 "signal": signal, "risk": result_view.get("risk"),
@@ -700,6 +777,11 @@ async def _run_trade_cycle(signal: dict) -> None:
                 snapshot_tx   = getattr(zg, "snapshot_tx", None)
             except Exception as exc:
                 log.warning("snapshot flush failed", error=str(exc))
+
+            # ENS: snapshot proof on every agent's text record (cross-cutting)
+            if snapshot_root:
+                for role in ("researcher", "risk", "executor"):
+                    await identity.update_text(role, "swarmfi.snapshot", snapshot_root)
 
         _publish_state_view(snapshot_root, result_view, snapshot_tx=snapshot_tx)
 

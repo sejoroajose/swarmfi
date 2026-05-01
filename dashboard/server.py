@@ -48,66 +48,211 @@ _KNOWN_PAIRS = [
 
 # ── Storage helpers ────────────────────────────────────────────────────────────
 
-async def _get_zg_state() -> dict:
+# The demo process writes ./logs/swarmfi-state.json after each cycle.
+# This is the dashboard's primary source of truth (the dashboard is a
+# separate Python process, so it can't share the demo's in-memory state).
+_STATE_FILE = Path(__file__).parent.parent / "logs" / "swarmfi-state.json"
+
+
+def _read_state_file() -> dict:
     try:
-        from core.storage.client import ZeroGClient
-        from core.storage.kv import SwarmKV
-        from core.storage.models import KVKey
-        async with ZeroGClient.from_env() as zg:
-            kv  = SwarmKV(zg)
-            raw = await kv.get(KVKey.SWARM_STATE)
-            if raw:
-                return json.loads(raw.decode())
-    except Exception as e:
+        if _STATE_FILE.exists():
+            return json.loads(_STATE_FILE.read_text())
+    except Exception:
         pass
     return {}
 
+
+async def _get_zg_state() -> dict:
+    """
+    Return the latest swarm state for the dashboard.
+    Source of truth: the demo's ./logs/swarmfi-state.json sidecar.
+    """
+    view = _read_state_file()
+    if not view:
+        return {}
+
+    # Build a minimal state shape the frontend already understands.
+    results = view.get("results", []) or []
+    last = results[-1] if results else {}
+    last = last if isinstance(last, dict) else {}
+    agents: dict[str, dict] = {
+        "researcher": {
+            "status":      "IDLE",
+            "last_signal": last.get("signal", {}),
+        },
+        "risk": {
+            "status":          "IDLE",
+            "last_risk_score": last.get("risk"),
+            "last_action":     last.get("action"),
+            "last_confidence": last.get("confidence"),
+        },
+        "executor": {
+            "status":       "IDLE",
+            "last_tx_hash": last.get("tx"),
+            "last_routing": last.get("routing"),
+        },
+    }
+    return {
+        "version":       view.get("cycles", 0),
+        "updated_at":    view.get("updated_at"),
+        "snapshot_root": view.get("snapshot_root"),
+        "agents":        agents,
+    }
+
+
 async def _get_zg_log(limit: int = 30) -> list:
-    try:
-        from core.storage.client import ZeroGClient
-        from core.storage.kv import SwarmKV
-        from core.storage.log import SwarmLog
-        async with ZeroGClient.from_env() as zg:
-            kv   = SwarmKV(zg)
-            slog = SwarmLog(zg, kv)
-            entries = await slog.recent(limit=limit)
-            return [
-                {
-                    "event_type": e.event_type.value,
-                    "agent_role": e.agent_role,
-                    "timestamp":  e.timestamp.isoformat(),
-                    "data":       e.data,
-                }
-                for e in entries
-            ]
-    except Exception:
-        return []
+    """
+    Reconstruct a flat event log from the demo's recent results.
+    Each cycle produces: MARKET_SIGNAL → RISK_DECISION → TRADE_*.
+    """
+    view = _read_state_file()
+    results = view.get("results", []) or []
+    out: list[dict] = []
+    for r in results:
+        cyc = r.get("cycle", 0)
+        # Market signal
+        out.append({
+            "event_type": "MARKET_SIGNAL",
+            "agent_role": "researcher",
+            "timestamp":  view.get("updated_at"),
+            "data":       {"cycle": cyc},
+        })
+        # Risk decision
+        out.append({
+            "event_type": "RISK_DECISION",
+            "agent_role": "risk",
+            "timestamp":  view.get("updated_at"),
+            "data": {
+                "cycle":     cyc,
+                "risk_score": r.get("risk"),
+                "action":    r.get("action"),
+            },
+        })
+        # Trade outcome
+        if r.get("tx"):
+            out.append({
+                "event_type": "TRADE_EXECUTED",
+                "agent_role": "executor",
+                "timestamp":  view.get("updated_at"),
+                "data":       {"cycle": cyc, "tx_hash": r.get("tx")},
+            })
+        elif r.get("action") == "hold":
+            pass  # already captured in RISK_DECISION
+        elif r.get("error"):
+            out.append({
+                "event_type": "TRADE_FAILED",
+                "agent_role": "executor",
+                "timestamp":  view.get("updated_at"),
+                "data":       {"cycle": cyc, "error": r.get("error")},
+            })
+    return out[-limit:]
 
 # ── Chat with 0G Compute ──────────────────────────────────────────────────────
 
-_CHAT_SYSTEM = """You are SwarmFi's AI trading assistant, running on the 0G Compute Network.
-You help users configure and understand their autonomous DeFi trading swarm.
+_CHAT_SYSTEM = """You are SwarmFi AI — the in-app assistant for the SwarmFi
+autonomous DeFi swarm running on 0G Compute. You speak with first-person
+authority about THIS specific swarm. You are NOT a generic crypto advisor and
+you NEVER invent generic trading-book content (no RSI tutorials, no MACD
+explainers, no "buy low sell high" filler).
 
-Current swarm capabilities:
-- Monitors ETH/USDC price signals on Base (chain 8453)
-- Uses AI risk scoring to approve or reject trades
-- Executes swaps via Uniswap Trading API with KeeperHub guaranteed delivery
-- Stores all decisions permanently on 0G decentralized storage
-- P2P encrypted agent communication via Gensyn AXL
+The swarm is exactly three agents on 0G + Base:
 
-You can help with:
-- Explaining trading strategies and how to tune the risk threshold
-- Analysing recent swarm decisions from the history log
-- Suggesting which token pairs to trade
-- Explaining how each component works
+  researcher.swarmfi.eth   — pulls ETH/USDC (and other Base) price signals
+                             and writes them to 0G Storage as the shared
+                             market-signal record.
+  risk.swarmfi.eth         — uses 0G Compute (sealed inference, models like
+                             qwen3-plus / GLM-FP8) to score every signal
+                             0–10. Anything above the risk threshold is
+                             auto-rejected — the agent returns HOLD with a
+                             one-line reason.
+  executor.swarmfi.eth     — fetches a swap quote from the Uniswap Trading
+                             API and submits the calldata to KeeperHub,
+                             which guarantees broadcast (retry, gas mgmt,
+                             private routing). Returns the tx hash.
 
-Always be specific, concise, and technically accurate. When discussing trades, mention risk scores."""
+The three agents communicate peer-to-peer over Gensyn AXL (encrypted, no
+central broker). All status, signals, decisions, and tx hashes are
+persisted on 0G Storage as one snapshot per cycle — the snapshot root is
+visible in the dashboard summary.
+
+How to answer:
+  - Always ground responses in the SWARM CONTEXT block below. Reference
+    real numbers from it (risk scores, prices, root hashes, tx hashes).
+  - If the user asks something the swarm doesn't actually do (price
+    prediction, custom indicator analysis, news scraping), say so plainly
+    in one sentence and pivot to what the swarm CAN do.
+  - When explaining a sponsor (0G / Uniswap / KeeperHub / Gensyn / ENS),
+    describe the role it plays in THIS swarm, not the product in general.
+  - Be terse. 4–8 sentences usually. No bullet-list essays unless asked.
+  - Never use phrases like "as an AI" or "I cannot provide financial
+    advice". You are an embedded operator, not a chatbot."""
+
+def _short_hash(s: str | None, head: int = 10, tail: int = 6) -> str:
+    if not s:
+        return "—"
+    s = str(s)
+    if len(s) <= head + tail + 1:
+        return s
+    return f"{s[:head]}…{s[-tail:]}"
+
+async def _build_swarm_context() -> str:
+    """Render a compact live-state block to inject into the system prompt."""
+    try:
+        state = await _get_zg_state()
+        log   = await _get_zg_log(limit=8)
+    except Exception:
+        state, log = {}, []
+
+    cfg = _swarm_config
+    pair = cfg.get("default_pair", {})
+    lines = ["SWARM CONTEXT (live, regenerated each request):"]
+    lines.append(
+        f"  config: pair={pair.get('token_in_sym','?')}→{pair.get('token_out_sym','?')} "
+        f"chain={pair.get('chain_id','?')} "
+        f"risk_threshold={cfg.get('risk_threshold','?')} "
+        f"amount_in_wei={cfg.get('amount_in_wei','?')} "
+        f"auto_trade={cfg.get('auto_trade', False)}"
+    )
+
+    snap = (state or {}).get("snapshot_root") or os.getenv("SWARMFI_SNAPSHOT_ROOT", "").strip()
+    if snap:
+        lines.append(f"  latest_0g_snapshot: {_short_hash(snap)}")
+
+    agents = (state or {}).get("agents") or {}
+    if agents:
+        lines.append(f"  agents_seen: {len(agents)}  state_version: {state.get('version', 0)}")
+        for role, a in agents.items():
+            lines.append(
+                f"    - {role:10s} status={a.get('status','?'):10s} "
+                f"risk={a.get('last_risk_score','—')} "
+                f"tx={_short_hash(a.get('last_tx_hash'))}"
+            )
+    else:
+        lines.append("  agents_seen: 0  (no on-chain snapshot loaded yet)")
+
+    if log:
+        lines.append(f"  recent_events ({len(log)}):")
+        for e in log[-8:]:
+            data = e.get("data") or {}
+            extras = []
+            if "risk_score" in data:    extras.append(f"risk={data['risk_score']}")
+            if "action"     in data:    extras.append(f"action={data['action']}")
+            if "price_usd"  in data:    extras.append(f"price=${data['price_usd']}")
+            if "tx_hash"    in data:    extras.append(f"tx={_short_hash(data['tx_hash'])}")
+            extra = (" " + " ".join(extras)) if extras else ""
+            lines.append(f"    - [{e.get('agent_role','?')}] {e.get('event_type','?')}{extra}")
+    else:
+        lines.append("  recent_events: 0  (run a cycle to populate)")
+    return "\n".join(lines)
 
 async def _ai_chat(messages: list[dict]) -> str:
     try:
         from core.compute.client import ZeroGComputeClient
+        context = await _build_swarm_context()
+        system  = _CHAT_SYSTEM + "\n\n" + context
         async with ZeroGComputeClient.from_env() as client:
-            full_msgs = [{"role": "system", "content": _CHAT_SYSTEM}] + messages
+            full_msgs = [{"role": "system", "content": system}] + messages
             return await client.chat(full_msgs, max_tokens=800)
     except Exception as exc:
         return f"AI unavailable: {exc}"
@@ -184,12 +329,44 @@ def main() -> None:
         return JSONResponse(await _get_zg_log(limit=50))
 
     # ── AI Chat ───────────────────────────────────────────────────────────────
-    class ChatRequest(BaseModel):
-        messages: list[dict]
+    # Permissive request handling: the frontend sends {messages:[{role,content},…]},
+    # but we also accept {message:"…"}, a bare string, or {prompt:"…"} so an
+    # accidental 422 never blocks the demo. Bad payloads return 200 + an
+    # explanatory reply instead of a confusing validation error.
+    from fastapi import Body
+
+    def _normalise_chat_payload(body: Any) -> list[dict] | None:
+        if body is None:
+            return None
+        if isinstance(body, str) and body.strip():
+            return [{"role": "user", "content": body.strip()}]
+        if isinstance(body, dict):
+            if isinstance(body.get("messages"), list):
+                msgs: list[dict] = []
+                for m in body["messages"]:
+                    if isinstance(m, dict) and m.get("content"):
+                        msgs.append({
+                            "role":    str(m.get("role", "user")),
+                            "content": str(m["content"]),
+                        })
+                    elif isinstance(m, str):
+                        msgs.append({"role": "user", "content": m})
+                return msgs or None
+            for k in ("message", "prompt", "text", "input"):
+                v = body.get(k)
+                if isinstance(v, str) and v.strip():
+                    return [{"role": "user", "content": v.strip()}]
+        return None
 
     @app.post("/api/chat")
-    async def chat(req: ChatRequest):
-        reply = await _ai_chat(req.messages)
+    async def chat(payload: Any = Body(default=None)):
+        msgs = _normalise_chat_payload(payload)
+        if not msgs:
+            return JSONResponse(
+                {"reply": "I didn't receive any message. Try typing something into the chat box."},
+                status_code=200,
+            )
+        reply = await _ai_chat(msgs)
         return JSONResponse({"reply": reply})
 
     # ── Inject trade signal ───────────────────────────────────────────────────
@@ -202,11 +379,19 @@ def main() -> None:
         amount_wei: int = 50_000_000_000_000_000
 
     @app.post("/api/signal")
-    async def inject_signal(req: SignalRequest):
+    async def inject_signal(payload: Any = Body(default=None)):
         """Inject a trade signal into the swarm — runs a real trade cycle."""
         try:
+            body = payload if isinstance(payload, dict) else {}
+
+            token_in   = str(body.get("token_in")  or "0x0000000000000000000000000000000000000000")
+            token_out  = str(body.get("token_out") or "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913")
+            chain_id   = int(body.get("chain_id") or 8453)
+            sig_str    = str(body.get("signal")    or "strong")
+            reason     = str(body.get("reason")    or "Manual signal from dashboard")
+            amount_wei = int(body.get("amount_wei") or 50_000_000_000_000_000)
+
             import httpx
-            # Fetch live price for the signal
             price = 0.0
             try:
                 async with httpx.AsyncClient(timeout=5) as hclient:
@@ -219,16 +404,14 @@ def main() -> None:
                 pass
 
             signal = {
-                "token_in":      req.token_in,
-                "token_out":     req.token_out,
-                "chain_id":      req.chain_id,
+                "token_in":      token_in,
+                "token_out":     token_out,
+                "chain_id":      chain_id,
                 "price_usd":     price,
-                "signal":        req.signal,
-                "reason":        req.reason,
-                "amount_in_wei": req.amount_wei,
+                "signal":        sig_str,
+                "reason":        reason,
+                "amount_in_wei": amount_wei,
             }
-
-            # Run the full trade cycle in background
             asyncio.create_task(_run_trade_cycle(signal))
             return JSONResponse({"status": "signal_injected", "signal": signal})
         except Exception as exc:
@@ -249,27 +432,34 @@ def main() -> None:
         network:   str   = "base"
 
     @app.post("/api/transfer")
-    async def transfer_to_ens(req: TransferRequest):
+    async def transfer_to_ens(payload: Any = Body(default=None)):
         """Resolve ENS name and execute transfer via KeeperHub."""
-        address = await _resolve_ens(req.recipient)
+        body = payload if isinstance(payload, dict) else {}
+        recipient = str(body.get("recipient") or "").strip()
+        amount    = str(body.get("amount")    or "").strip()
+        network   = str(body.get("network")   or "base").strip()
+        if not recipient or not amount:
+            raise HTTPException(400, "recipient and amount required")
+
+        address = await _resolve_ens(recipient)
         if not address:
-            raise HTTPException(400, f"Could not resolve {req.recipient}")
+            raise HTTPException(400, f"Could not resolve {recipient}")
 
         try:
             from core.keeperhub.client import KeeperHubClient
             from core.keeperhub.models import KHTransferRequest, KHNetwork
             async with KeeperHubClient.from_env() as kh:
                 kh_req = KHTransferRequest(
-                    network=KHNetwork(req.network),
+                    network=KHNetwork(network),
                     recipientAddress=address,
-                    amount=req.amount,
+                    amount=amount,
                 )
                 result = await kh.execute_transfer(kh_req)
                 return JSONResponse({
                     "execution_id": result.execution_id,
                     "resolved_address": address,
-                    "recipient": req.recipient,
-                    "amount": req.amount,
+                    "recipient": recipient,
+                    "amount": amount,
                 })
         except Exception as exc:
             raise HTTPException(500, str(exc))
@@ -290,14 +480,48 @@ def main() -> None:
     async def get_pairs():
         return JSONResponse(_KNOWN_PAIRS)
 
+    # ── Multi-pair scanner ────────────────────────────────────────────────────
+    @app.get("/api/scan")
+    async def get_scan():
+        """Return the live edge-profile scan across all bluechip pairs."""
+        from core.scanner import scan_pairs
+        try:
+            result = await scan_pairs()
+            return JSONResponse(result.to_dict())
+        except Exception as exc:
+            return JSONResponse({"error": str(exc), "ranked": []}, status_code=200)
+
     # ── App ───────────────────────────────────────────────────────────────────
     port = int(os.getenv("DASHBOARD_PORT", "8080"))
     print(f"\n  SwarmFi Dashboard → http://127.0.0.1:{port}\n")
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
 
 
+def _publish_state_view(snapshot_root: str | None, result: dict) -> None:
+    """Append a result to ./logs/swarmfi-state.json so the dashboard sees it."""
+    try:
+        from datetime import datetime, timezone
+        view = _read_state_file() or {"results": []}
+        results = list(view.get("results") or [])
+        results.append(result)
+        out = {
+            "updated_at":    datetime.now(tz=timezone.utc).isoformat(),
+            "snapshot_root": snapshot_root or view.get("snapshot_root"),
+            "cycles":        len(results),
+            "results":       results[-20:],
+            "pair":          result.get("signal") or view.get("pair") or {},
+        }
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _STATE_FILE.write_text(json.dumps(out, indent=2))
+    except Exception:
+        pass
+
+
 async def _run_trade_cycle(signal: dict) -> None:
-    """Background task: run full researcher→risk→executor cycle with real APIs."""
+    """Background task: run full researcher→risk→executor cycle with real APIs.
+    Commits a 0G snapshot at the end and updates the dashboard state file."""
+    import structlog
+    log = structlog.get_logger("dashboard")
     try:
         from core.storage.client import ZeroGClient
         from core.storage.agent_memory import make_shared_memory_set
@@ -314,14 +538,18 @@ async def _run_trade_cycle(signal: dict) -> None:
         kh      = KeeperHubClient.from_env()
         wallet  = os.getenv("WALLET_ADDRESS", "")
 
+        # Track outcome for the state file
+        result_view: dict[str, Any] = {
+            "cycle":  (_read_state_file().get("cycles") or 0) + 1,
+            "signal": signal,
+        }
+
         async with zg, compute, uniswap, kh:
             memories = make_shared_memory_set(["researcher", "risk", "executor"], zg)
 
-            # Researcher
             await memories["researcher"].update_status(AgentStatus.SCANNING, last_signal=signal)
             await memories["researcher"].log_event(LogEventType.MARKET_SIGNAL, data=signal)
 
-            # Risk — real 0G Compute AI scoring
             await memories["risk"].update_status(AgentStatus.DECIDING)
             scorer   = RiskScorer(compute)
             decision = await scorer.score(signal=signal, sender_pubkey="0"*64, our_pubkey="0"*64)
@@ -330,32 +558,45 @@ async def _run_trade_cycle(signal: dict) -> None:
             await memories["risk"].log_event(LogEventType.RISK_DECISION, data=payload)
             await memories["risk"].update_status(AgentStatus.IDLE, last_risk_score=payload.get("risk_score"))
 
+            result_view["risk"]       = payload.get("risk_score")
+            result_view["action"]     = payload.get("action")
+            result_view["confidence"] = payload.get("confidence")
+            result_view["reasoning"]  = payload.get("reasoning")
+
             if payload.get("action") == "hold":
                 await memories["executor"].log_event(LogEventType.TRADE_FAILED,
                     data={"action": "HOLD", "reason": payload.get("rejection_reason")})
-                return
-
-            # Executor — real Uniswap + KeeperHub
-            await memories["executor"].update_status(AgentStatus.EXECUTING)
-            executor = KeeperHubSwapExecutor(uniswap=uniswap, keeperhub=kh, wallet_address=wallet, zg_client=zg)
-            result   = await executor.execute_swap(
-                token_in=payload.get("token_in"),
-                token_out=payload.get("token_out"),
-                amount_in_wei=str(payload.get("amount_in_wei", 50_000_000_000_000_000)),
-                chain_id=payload.get("chain_id", 8453),
-                wallet_address=wallet,
-            )
-
-            if result.succeeded or result.status.value == "submitted":
-                await memories["executor"].update_status(AgentStatus.IDLE, last_tx_hash=result.tx_hash)
-                await memories["executor"].log_event(LogEventType.TRADE_EXECUTED, data=result.to_log_data())
             else:
-                await memories["executor"].update_status(AgentStatus.ERROR, error_message=result.error)
-                await memories["executor"].log_event(LogEventType.TRADE_FAILED, data=result.to_log_data())
+                await memories["executor"].update_status(AgentStatus.EXECUTING)
+                executor = KeeperHubSwapExecutor(uniswap=uniswap, keeperhub=kh, wallet_address=wallet, zg_client=zg)
+                result   = await executor.execute_swap(
+                    token_in=payload.get("token_in"),
+                    token_out=payload.get("token_out"),
+                    amount_in_wei=str(payload.get("amount_in_wei", 50_000_000_000_000_000)),
+                    chain_id=payload.get("chain_id", 8453),
+                    wallet_address=wallet,
+                )
+                if result.succeeded or result.status.value == "submitted":
+                    await memories["executor"].update_status(AgentStatus.IDLE, last_tx_hash=result.tx_hash)
+                    await memories["executor"].log_event(LogEventType.TRADE_EXECUTED, data=result.to_log_data())
+                    result_view["tx"]      = result.tx_hash
+                    result_view["routing"] = result.routing.value if result.routing else "CLASSIC"
+                else:
+                    await memories["executor"].update_status(AgentStatus.ERROR, error_message=result.error)
+                    await memories["executor"].log_event(LogEventType.TRADE_FAILED, data=result.to_log_data())
+                    result_view["error"] = result.error
+
+            # Commit the buffered swarm state to 0G in ONE on-chain tx
+            snapshot_root: str | None = None
+            try:
+                snapshot_root = await asyncio.wait_for(zg.flush(), timeout=240)
+            except Exception as exc:
+                log.warning("snapshot flush failed", error=str(exc))
+
+        _publish_state_view(snapshot_root, result_view)
 
     except Exception as exc:
-        import structlog
-        structlog.get_logger("dashboard").error("trade cycle failed", error=str(exc))
+        log.error("trade cycle failed", error=str(exc))
 
 
 if __name__ == "__main__":

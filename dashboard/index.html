@@ -3,422 +3,1193 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>SwarmFi</title>
+<title>SwarmFi · Autonomous DeFi Swarm</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
 <style>
 :root{
-  --bg:#0a0c10;--surface:#111318;--surface2:#171b24;--border:#1e2535;
-  --text:#e2e8f0;--muted:#4a5568;--accent:#3b82f6;--accent2:#8b5cf6;
-  --green:#22c55e;--yellow:#f59e0b;--red:#ef4444;--cyan:#06b6d4;
+  /* ── Warm fintech palette — deliberately not crypto-dark ─────────── */
+  --bg:        #faf7f2;   /* soft cream */
+  --surface:   #ffffff;
+  --surface-2: #fdfaf4;   /* warmer card */
+  --ink:       #14171f;   /* deep almost-black */
+  --ink-2:     #2c3140;
+  --muted:     #6b7280;
+  --faint:     #a0a4b0;
+  --line:      #ebe6dc;   /* warm hairline */
+  --line-strong: #d9d2c3;
+
+  /* ONE signature accent — sunset coral. Used sparingly. */
+  --accent:    #e85a3e;
+  --accent-soft: #fbeae5;
+
+  /* Status palette */
+  --green:     #2d8a5b;
+  --green-soft:#e7f3ec;
+  --amber:     #c47a1f;
+  --amber-soft:#fbf0dc;
+  --rose:      #c43a4a;
+  --rose-soft: #fbe5e8;
+  --indigo:    #3a4ec0;
+  --indigo-soft:#eaedf9;
+
+  /* Typography */
+  --serif: 'Fraunces', Georgia, serif;
+  --sans:  'Inter', system-ui, sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --shadow-sm: 0 1px 2px rgba(20,23,31,.04), 0 1px 1px rgba(20,23,31,.03);
+  --shadow:    0 1px 0 rgba(0,0,0,.02), 0 8px 24px -8px rgba(20,23,31,.08), 0 2px 6px -2px rgba(20,23,31,.04);
+  --shadow-lg: 0 24px 48px -16px rgba(20,23,31,.12), 0 8px 20px -8px rgba(20,23,31,.06);
+
+  --radius:    14px;
+  --radius-sm: 10px;
 }
+
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:14px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings: "ss01", "cv11";
+}
+.bg-noise{
+  position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(60% 30% at 80% -10%, rgba(232,90,62,.05), transparent 60%),
+    radial-gradient(50% 30% at 0% 100%, rgba(58,78,192,.04), transparent 60%);
+}
 
-/* ── Header ── */
-header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.logo{font-size:17px;font-weight:700;letter-spacing:-.5px}
-.logo span{color:var(--accent)}
-.header-right{display:flex;align-items:center;gap:12px}
-.live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.status-txt{font-size:12px;color:var(--muted)}
+/* ── Header ─────────────────────────────────────────────────────── */
+header{
+  position:sticky;top:0;z-index:50;
+  background:rgba(250,247,242,.85);
+  backdrop-filter:saturate(140%) blur(10px);
+  -webkit-backdrop-filter:saturate(140%) blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.hdr-inner{
+  max-width:1280px;margin:0 auto;
+  padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;
+}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:inherit}
+.brand-mark{
+  width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg, var(--accent) 0%, #f5b58c 100%);
+  position:relative;box-shadow:0 6px 16px -6px rgba(232,90,62,.5);
+}
+.brand-mark::after{
+  content:"";position:absolute;inset:5px 5px 5px 12px;border-radius:50%;
+  background:#fff;
+}
+.brand-text{font-family:var(--serif);font-weight:600;letter-spacing:-.5px;font-size:20px}
+.brand-text em{font-style:italic;color:var(--accent)}
+.brand-tag{display:none}
+@media(min-width:720px){
+  .brand-tag{display:block;font-size:11px;color:var(--muted);margin-top:1px;letter-spacing:.2px}
+}
 
-/* ── Tabs ── */
-.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
-.tab{padding:12px 20px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;transition:all .15s}
-.tab:hover{color:var(--text)}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.hdr-right{display:flex;align-items:center;gap:10px}
+.live-pill{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--green-soft);color:var(--green);
+  border:1px solid #c7e4d2;
+  padding:5px 11px;border-radius:99px;font-size:11.5px;font-weight:600;
+}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(45,138,91,.4);animation:livePulse 2s infinite}
+@keyframes livePulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(45,138,91,.5)}
+  50%{box-shadow:0 0 0 6px rgba(45,138,91,0)}
+}
+.snapshot-pill{
+  display:none;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:11px;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);
+  padding:5px 11px;border-radius:99px;text-decoration:none;
+  transition:border-color .15s, transform .15s;
+}
+.snapshot-pill:hover{border-color:var(--accent);transform:translateY(-1px)}
+.snapshot-pill .dim{color:var(--muted)}
 
-/* ── Tab panes ── */
-.pane{display:none;flex:1;overflow:hidden}
-.pane.active{display:flex;flex-direction:column}
+/* ── Tabs ───────────────────────────────────────────────────────── */
+.tabs{
+  max-width:1280px;margin:0 auto;
+  display:flex;gap:2px;padding:0 28px;
+  border-bottom:1px solid var(--line);
+}
+.tab{
+  padding:12px 16px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);
+  border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;
+  font-family:inherit;transition:color .15s, border-color .15s;
+}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
 
-/* ════════════════════════════════════════════
-   TAB 1 — SWARM MONITOR
-════════════════════════════════════════════ */
-#pane-monitor{flex-direction:column;overflow-y:auto;padding:16px;gap:16px}
+/* ── Pane ───────────────────────────────────────────────────────── */
+.pane{display:none;max-width:1280px;margin:0 auto;padding:32px 28px 80px}
+.pane.active{display:block}
 
-.agent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-@media(max-width:700px){.agent-grid{grid-template-columns:1fr}}
+/* ── Hero (warmer, calmer than v1) ──────────────────────────────── */
+.hero{
+  position:relative;
+  display:grid;grid-template-columns:1.4fr 1fr;gap:32px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:18px;padding:32px;
+  box-shadow:var(--shadow);
+}
+@media(max-width:880px){.hero{grid-template-columns:1fr;padding:24px}}
+.hero-eyebrow{
+  display:inline-flex;align-items:center;gap:7px;
+  font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:14px;
+}
+.hero-eyebrow::before{content:"";width:18px;height:1.5px;background:var(--accent);border-radius:2px}
+.hero h1{
+  font-family:var(--serif);font-weight:600;
+  font-size:clamp(28px, 4.2vw, 42px);line-height:1.05;letter-spacing:-1.4px;
+  margin-bottom:14px;color:var(--ink);
+}
+.hero h1 em{font-style:italic;color:var(--accent);font-weight:500}
+.hero p{
+  color:var(--ink-2);max-width:54ch;font-size:15px;line-height:1.65;
+}
+.hero-narrator{
+  background:var(--accent-soft);border:1px solid #f3d4cb;
+  border-radius:var(--radius);padding:18px 20px;margin-top:22px;
+}
+.hero-narrator-label{
+  display:flex;align-items:center;gap:7px;
+  font-size:10.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:10px;
+}
+.hero-narrator-label::before{content:"●";font-size:8px}
+.hero-narrator-text{font-size:14.5px;color:var(--ink);line-height:1.65}
+.hero-narrator-text em{color:var(--accent);font-style:normal;font-weight:600}
+.hero-narrator-text .v{font-family:var(--mono);background:#fff;padding:0 5px;border-radius:4px;border:1px solid #f3d4cb;font-size:12.5px}
 
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px}
-.card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
-.card-role{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
-.card-name{font-size:18px;font-weight:700;margin-top:2px}
-.card-ens{font-size:10px;color:var(--accent2);margin-top:2px;opacity:.8}
+.hero-stats{
+  display:flex;flex-direction:column;gap:1px;
+  background:var(--line);border-radius:var(--radius);overflow:hidden;
+  border:1px solid var(--line);
+}
+.stat{
+  background:var(--surface-2);padding:14px 18px;
+  display:flex;justify-content:space-between;align-items:center;gap:14px;
+}
+.stat-k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:500}
+.stat-v{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--ink)}
+.stat-v.green{color:var(--green)}
+.stat-v.coral{color:var(--accent)}
+.stat-v a{color:inherit;text-decoration:none;border-bottom:1px dashed var(--line-strong)}
+.stat-v a:hover{border-color:var(--accent)}
 
-.badge{padding:3px 9px;border-radius:99px;font-size:10px;font-weight:600;text-transform:uppercase}
-.badge-idle{background:#1a2035;color:var(--muted)}
-.badge-scanning{background:#0f2a4a;color:#60a5fa}
-.badge-deciding{background:#1e1040;color:#a78bfa}
-.badge-executing{background:#0d2818;color:#4ade80}
-.badge-error{background:#2d1010;color:#f87171}
+.sponsor-row{
+  display:flex;flex-wrap:wrap;gap:6px;margin-top:22px;
+  padding-top:22px;border-top:1px solid var(--line);
+}
+.sponsor-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11.5px;color:var(--muted);
+  padding:5px 10px;border:1px solid var(--line);border-radius:99px;
+  background:var(--surface);font-weight:500;
+}
+.sponsor-chip strong{color:var(--ink);font-weight:600}
+.sponsor-chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 
-.metric{display:flex;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-.metric-k{font-size:11px;color:var(--muted)}
-.metric-v{font-size:12px;font-weight:600;font-family:monospace}
+/* ── Section ─────────────────────────────────────────────────────── */
+.section{margin-top:44px}
+.section-hdr{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.section-num{
+  font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.4px;font-weight:500;
+  background:var(--surface);border:1px solid var(--line);padding:2px 8px;border-radius:6px;
+}
+.section-title{
+  font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:-.6px;color:var(--ink);
+}
+.section-line{flex:1;height:1px;background:var(--line)}
+.section-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 
-.risk-wrap{margin-top:10px}
-.risk-label{font-size:11px;color:var(--muted);display:flex;justify-content:space-between}
-.risk-track{height:5px;border-radius:99px;background:var(--border);margin-top:4px;overflow:hidden}
-.risk-fill{height:100%;border-radius:99px;transition:width .4s,background .4s}
+/* ── Agent cards ────────────────────────────────────────────────── */
+.agent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:920px){.agent-grid{grid-template-columns:1fr}}
 
-/* Log table */
-.log-section{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
-.log-header{padding:12px 16px;font-size:12px;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.log-scroll{overflow-y:auto;max-height:260px}
-table{width:100%;border-collapse:collapse}
-th{padding:6px 12px;font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;text-align:left;background:var(--surface2)}
-td{padding:7px 12px;font-size:11px;border-top:1px solid var(--border);vertical-align:top}
-.evt-market_signal{color:#60a5fa}.evt-risk_decision{color:#a78bfa}
-.evt-trade_executed{color:#4ade80}.evt-trade_failed{color:#f87171}
-.evt-agent_started,.evt-agent_stopped,.evt-state_updated{color:var(--muted)}
-.evt-error{color:#f87171}
+.agent-card{
+  position:relative;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px;transition:border-color .2s, transform .2s, box-shadow .2s;
+}
+.agent-card:hover{border-color:var(--line-strong);transform:translateY(-1px);box-shadow:var(--shadow)}
+.agent-card[data-active="true"]{
+  border-color:var(--card-color, var(--accent));
+  box-shadow:0 0 0 3px rgba(232,90,62,.06);
+}
+.agent-card[data-role="researcher"]{--card-color:var(--indigo);--card-soft:var(--indigo-soft)}
+.agent-card[data-role="risk"]{--card-color:var(--accent);--card-soft:var(--accent-soft)}
+.agent-card[data-role="executor"]{--card-color:var(--green);--card-soft:var(--green-soft)}
 
-/* control bar */
-.ctrl-bar{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
-.ctrl-group{display:flex;flex-direction:column;gap:4px}
-.ctrl-group label{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-.ctrl-group select,.ctrl-group input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;outline:none}
-.ctrl-group select:focus,.ctrl-group input:focus{border-color:var(--accent)}
-.btn{padding:7px 16px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s}
-.btn-primary{background:var(--accent);color:#fff}
-.btn-primary:hover{background:#2563eb}
-.btn-primary:disabled{opacity:.4;cursor:not-allowed}
-.btn-danger{background:#7f1d1d;color:#fca5a5}
-.btn-sm{padding:4px 10px;font-size:11px}
-.version-row{font-size:10px;color:var(--muted);text-align:right;margin-top:4px}
+.agent-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px}
+.agent-id{display:flex;align-items:center;gap:11px}
+.agent-icon{
+  width:36px;height:36px;border-radius:9px;flex-shrink:0;
+  background:var(--card-soft);border:1px solid var(--card-color);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--serif);font-weight:600;font-size:16px;color:var(--card-color);
+}
+.agent-name{font-family:var(--serif);font-size:17px;font-weight:600;letter-spacing:-.3px;color:var(--ink)}
+.agent-ens{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:1px}
 
-/* ════════════════════════════════════════════
-   TAB 2 — AI CHAT
-════════════════════════════════════════════ */
-#pane-chat{flex-direction:column}
-.chat-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:75%;padding:10px 14px;border-radius:12px;line-height:1.5;font-size:13px;word-break:break-word}
-.msg-user{align-self:flex-end;background:var(--accent);color:#fff;border-radius:12px 12px 2px 12px}
-.msg-ai{align-self:flex-start;background:var(--surface2);border:1px solid var(--border);border-radius:12px 12px 12px 2px}
-.msg-ai .msg-label{font-size:10px;font-weight:700;color:var(--accent2);margin-bottom:4px}
-.msg-system{align-self:center;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:11px;padding:6px 12px;border-radius:99px}
-.msg-ai pre{font-family:monospace;font-size:12px;background:var(--border);padding:8px;border-radius:6px;overflow-x:auto;margin-top:6px;white-space:pre-wrap}
+.badge{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.6px;font-weight:600;
+  padding:4px 9px;border-radius:99px;text-transform:uppercase;
+  background:var(--surface-2);color:var(--muted);border:1px solid var(--line);
+  flex-shrink:0;
+}
+.badge-active{background:var(--card-color);color:#fff;border-color:transparent;animation:pulse 1.5s infinite}
+@keyframes pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(232,90,62,.4)}
+  50%{box-shadow:0 0 0 5px transparent}
+}
 
-.chat-input-row{padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end;flex-shrink:0}
-.chat-input-row textarea{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;resize:none;font-family:inherit;font-size:13px;outline:none;max-height:120px;min-height:40px;line-height:1.4}
-.chat-input-row textarea:focus{border-color:var(--accent)}
-.chat-input-row textarea::placeholder{color:var(--muted)}
+.agent-purpose{font-size:11.5px;color:var(--muted);margin-bottom:6px;font-weight:500}
+.agent-blurb{font-size:13.5px;color:var(--ink-2);line-height:1.55;margin-bottom:16px;min-height:42px}
 
-.quick-btns{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px;flex-shrink:0}
-.quick-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:99px;font-size:11px;cursor:pointer;transition:all .15s}
-.quick-btn:hover{border-color:var(--accent);color:var(--accent)}
+/* tooltip helper */
+.tip{position:relative;cursor:help;border-bottom:1px dotted var(--line-strong)}
+.tip::after{
+  content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;
+  transform:translate(-50%, 4px);
+  background:var(--ink);color:#fff;font-size:11px;padding:6px 9px;border-radius:6px;
+  white-space:nowrap;max-width:240px;opacity:0;pointer-events:none;
+  transition:opacity .15s, transform .15s;font-weight:500;
+  font-family:var(--sans);letter-spacing:0;
+}
+.tip:hover::after{opacity:1;transform:translate(-50%, 0)}
 
-/* ENS transfer widget inside chat */
-.ens-widget{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;margin-top:8px}
-.ens-widget h4{font-size:11px;color:var(--cyan);font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-.ens-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.ens-input{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;outline:none;flex:1;min-width:160px}
-.ens-input:focus{border-color:var(--cyan)}
-.resolved-addr{font-size:10px;color:var(--green);margin-top:4px;font-family:monospace}
+.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:none}
+.row-k{font-size:12px;color:var(--muted);font-weight:500}
+.row-v{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:500}
 
-/* spinner */
-.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.typing-dots span{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--muted);margin:0 2px;animation:dot 1.2s infinite}
-.typing-dots span:nth-child(2){animation-delay:.2s}
-.typing-dots span:nth-child(3){animation-delay:.4s}
-@keyframes dot{0%,80%,100%{transform:scale(0.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+/* Risk dial */
+.dial-wrap{display:flex;align-items:center;justify-content:center;margin:6px 0 14px}
+.dial{position:relative;width:120px;height:120px}
+.dial svg{width:100%;height:100%;transform:rotate(-90deg)}
+.dial-bg{fill:none;stroke:var(--line);stroke-width:7}
+.dial-fg{fill:none;stroke:var(--card-color);stroke-width:7;stroke-linecap:round;
+  stroke-dasharray:0 100;transition:stroke-dasharray .8s cubic-bezier(.2,.7,.2,1), stroke .3s}
+.dial-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.dial-num{font-family:var(--serif);font-size:28px;font-weight:600;letter-spacing:-.5px}
+.dial-lbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:1px}
+.dial-band{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:8px}
+.dial-band.low{color:var(--green)}
+.dial-band.mid{color:var(--amber)}
+.dial-band.high{color:var(--rose)}
+
+/* ── Cycle panel ────────────────────────────────────────────────── */
+.panel{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px;box-shadow:var(--shadow-sm);
+}
+.panel-intro{font-size:13.5px;color:var(--muted);margin-bottom:18px;line-height:1.55}
+
+.fire-grid{display:grid;grid-template-columns:repeat(4, 1fr);gap:14px;align-items:end}
+@media(max-width:880px){.fire-grid{grid-template-columns:1fr 1fr}}
+.field{display:flex;flex-direction:column;gap:6px}
+.field-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.field-help{font-size:11px;color:var(--faint);margin-top:2px}
+
+.input,.select{
+  background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);
+  border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;
+  transition:border-color .15s, box-shadow .15s;
+}
+.input:focus,.select:focus{
+  outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(232,90,62,.12);
+}
+
+.btn{
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);
+  padding:10px 18px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;
+  transition:all .15s ease;display:inline-flex;align-items:center;gap:7px;
+  font-family:inherit;
+}
+.btn:hover{background:var(--surface-2);border-color:var(--accent);color:var(--accent)}
+.btn-primary{
+  background:var(--ink);color:#fff;border-color:var(--ink);
+}
+.btn-primary:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-success{
+  background:var(--green);color:#fff;border-color:var(--green);
+}
+.btn-success:hover{background:#256e49;border-color:#256e49;color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.fire-status{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:14px;min-height:18px}
+
+/* ── Story panel (the plain-English narrator) ──────────────────── */
+.story{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:0;overflow:hidden;
+}
+.story-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 22px;border-bottom:1px solid var(--line);
+  background:var(--surface-2);
+}
+.story-head-l{display:flex;align-items:center;gap:10px}
+.story-icon{
+  width:30px;height:30px;border-radius:8px;
+  background:var(--accent-soft);border:1px solid #f3d4cb;
+  display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:14px;
+}
+.story-title{font-family:var(--serif);font-size:16px;font-weight:600;letter-spacing:-.3px}
+.story-sub{font-size:11.5px;color:var(--muted);margin-top:1px}
+.story-step-count{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+.story-body{padding:8px 0}
+.story-step{display:grid;grid-template-columns:48px 1fr;gap:14px;padding:14px 22px;align-items:flex-start;position:relative}
+.story-step:not(:last-child)::before{
+  content:"";position:absolute;left:42px;top:36px;bottom:-8px;width:1px;background:var(--line);
+}
+.story-num{
+  width:26px;height:26px;border-radius:50%;
+  background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11.5px;font-weight:700;flex-shrink:0;
+}
+.story-step.success .story-num{background:var(--green-soft);color:var(--green)}
+.story-step.warning .story-num{background:var(--amber-soft);color:var(--amber)}
+.story-step.fail    .story-num{background:var(--rose-soft);color:var(--rose)}
+.story-text{font-size:14px;color:var(--ink);line-height:1.6}
+.story-text strong{color:var(--ink);font-weight:600}
+.story-text em{font-style:normal;color:var(--accent);font-weight:600}
+.story-text .v{font-family:var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12px;color:var(--ink);border:1px solid var(--line)}
+.story-text .ext{color:var(--accent);text-decoration:none;border-bottom:1px solid currentColor}
+.story-empty{padding:32px;text-align:center;color:var(--muted);font-size:14px}
+
+/* ── Edge scan table ────────────────────────────────────────────── */
+.scan-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.scan-tbl thead th{
+  background:var(--surface-2);text-align:left;padding:11px 16px;
+  font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+.scan-tbl tbody td{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.scan-tbl tbody tr:last-child td{border-bottom:none}
+.scan-tbl tbody tr.best{background:linear-gradient(90deg, rgba(232,90,62,.06), transparent 60%)}
+.scan-tbl tbody tr.best td:first-child::before{content:"★";color:var(--accent);margin-right:6px;font-size:14px}
+.scan-tbl .num{text-align:right}
+.scan-tbl .num.up{color:var(--green)}
+.scan-tbl .num.down{color:var(--rose)}
+.scan-tbl .composite-bar{display:flex;align-items:center;gap:10px}
+.scan-tbl .bar{flex:1;height:6px;background:var(--line);border-radius:99px;overflow:hidden;min-width:60px;max-width:120px}
+.scan-tbl .bar-fill{height:100%;background:linear-gradient(90deg, var(--accent) 0%, #f5b58c 100%);border-radius:99px;transition:width .8s ease}
+.scan-tbl .signal-pill{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:3px 8px;border-radius:99px}
+.scan-tbl .signal-strong{background:var(--green-soft);color:var(--green)}
+.scan-tbl .signal-medium{background:var(--amber-soft);color:var(--amber)}
+.scan-tbl .signal-weak{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+
+/* ── Timeline ───────────────────────────────────────────────────── */
+.timeline{display:flex;flex-direction:column;gap:6px}
+.tl-row{
+  display:grid;grid-template-columns:80px 130px 100px 1fr;gap:14px;align-items:center;
+  padding:10px 14px;border-radius:var(--radius-sm);
+  background:var(--surface);border:1px solid var(--line);font-size:13px;
+}
+.tl-time{font-family:var(--mono);color:var(--muted);font-size:11.5px}
+.tl-evt{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.4px;
+  padding:3px 8px;border-radius:6px;text-align:center;
+}
+.tl-evt.MARKET_SIGNAL  {background:var(--indigo-soft);color:var(--indigo)}
+.tl-evt.RISK_DECISION  {background:var(--accent-soft);color:var(--accent)}
+.tl-evt.TRADE_EXECUTED {background:var(--green-soft);color:var(--green)}
+.tl-evt.TRADE_FAILED   {background:var(--rose-soft);color:var(--rose)}
+.tl-evt.AGENT_STARTED  {background:var(--surface-2);color:var(--muted)}
+.tl-agent{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.tl-detail{font-family:var(--mono);font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-empty{padding:32px;text-align:center;color:var(--muted);font-size:14px}
+
+/* ── Chat ───────────────────────────────────────────────────────── */
+.chat-wrap{display:grid;grid-template-columns:240px 1fr;gap:18px;height:calc(100vh - 220px);min-height:500px}
+@media(max-width:920px){.chat-wrap{grid-template-columns:1fr;height:auto}}
+.chat-side{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;
+}
+.chat-side-hd{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.qbtn{
+  text-align:left;background:var(--surface-2);border:1px solid var(--line);
+  color:var(--ink);padding:9px 11px;border-radius:9px;font-size:12.5px;cursor:pointer;
+  transition:all .15s;line-height:1.4;font-family:inherit;
+}
+.qbtn:hover{border-color:var(--accent);color:var(--accent);transform:translateX(2px)}
+
+.chat-main{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.chat-msgs{flex:1;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:14px}
+.msg{max-width:85%;padding:11px 15px;border-radius:14px;font-size:14px;line-height:1.6}
+.msg-user{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:4px}
+.msg-ai{align-self:flex-start;background:var(--surface-2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg-ai .msg-label{font-size:10.5px;color:var(--accent);font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:5px}
+.msg-ai pre{background:var(--bg);padding:10px;border-radius:8px;font-family:var(--mono);font-size:11.5px;overflow-x:auto;margin:6px 0;border:1px solid var(--line)}
+.typing{display:inline-flex;gap:4px;padding:4px 0}
+.typing span{width:6px;height:6px;background:var(--accent);border-radius:50%;animation:typing 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.15s}
+.typing span:nth-child(3){animation-delay:.3s}
+@keyframes typing{0%,60%,100%{opacity:.3}30%{opacity:1;transform:translateY(-2px)}}
+
+.chat-input-row{display:flex;gap:10px;padding:12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.chat-input{flex:1;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);
+  border-radius:10px;padding:10px 13px;font-size:14px;font-family:inherit;resize:none;max-height:140px}
+.chat-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(232,90,62,.12)}
+
+/* ── ENS ────────────────────────────────────────────────────────── */
+.ens-grid{display:grid;grid-template-columns:1.3fr 1fr 1fr auto;gap:12px;align-items:end}
+@media(max-width:880px){.ens-grid{grid-template-columns:1fr 1fr}}
+.ens-resolved{font-family:var(--mono);font-size:11px;margin-top:4px;height:14px;min-height:14px}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+footer{
+  max-width:1280px;margin:60px auto 32px;padding:18px 28px;
+  display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+  border-top:1px solid var(--line);
+}
+footer .gap-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+footer a{color:var(--muted);text-decoration:none;transition:color .15s}
+footer a:hover{color:var(--accent)}
+footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
+
+/* utility */
+.copyable{cursor:pointer;transition:color .15s}
+.copyable:hover{color:var(--accent)}
+
+/* scrollbar */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(20,23,31,.12);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:rgba(20,23,31,.22)}
 </style>
 </head>
 <body>
+<div class="bg-noise"></div>
 
 <header>
-  <div class="logo">Swarm<span>Fi</span></div>
-  <div class="header-right">
-    <div class="live-dot" id="pulse"></div>
-    <span class="status-txt" id="status-txt">connecting…</span>
+  <div class="hdr-inner">
+    <a href="#" class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-text">Swarm<em>Fi</em></div>
+        <div class="brand-tag">Autonomous DeFi · ETHGlobal OpenAgents</div>
+      </div>
+    </a>
+    <div class="hdr-right">
+      <a id="snapshot-pill" class="snapshot-pill" target="_blank" rel="noopener">
+        <span class="dim">0G snapshot</span><span id="snapshot-text">—</span>
+      </a>
+      <div class="live-pill"><span class="live-dot"></span><span id="live-txt">Live</span></div>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="monitor">Swarm Monitor</button>
+    <button class="tab"        data-tab="chat">Talk to Swarm</button>
+    <button class="tab"        data-tab="ens">ENS Transfer</button>
   </div>
 </header>
 
-<div class="tabs">
-  <div class="tab active" onclick="switchTab('monitor')">🔴 Live Swarm</div>
-  <div class="tab" onclick="switchTab('chat')">💬 AI Assistant</div>
-</div>
-
-<!-- ════ TAB 1: MONITOR ════ -->
+<!-- ════════════════════════════════════════════════════════════
+     PANE — MONITOR
+     ════════════════════════════════════════════════════════════ -->
 <div class="pane active" id="pane-monitor">
 
-  <!-- Control bar -->
-  <div class="ctrl-bar" style="margin:12px 16px 0">
-    <div class="ctrl-group">
-      <label>Trading Pair</label>
-      <select id="pair-select"></select>
-    </div>
-    <div class="ctrl-group">
-      <label>Signal Strength</label>
-      <select id="signal-select">
-        <option value="strong">Strong</option>
-        <option value="medium" selected>Medium</option>
-        <option value="weak">Weak</option>
-      </select>
-    </div>
-    <div class="ctrl-group">
-      <label>Risk Threshold (0-10)</label>
-      <input type="number" id="risk-thresh" min="0" max="10" step="0.5" value="7.0" style="width:80px">
-    </div>
-    <div class="ctrl-group">
-      <label>Amount (ETH wei)</label>
-      <input type="text" id="amount-wei" value="50000000000000000" style="width:150px">
-    </div>
-    <div style="display:flex;gap:8px;align-items:flex-end">
-      <button class="btn btn-primary" id="fire-btn" onclick="fireTrade()">▶ Fire Signal</button>
-    </div>
-    <div id="fire-status" style="font-size:11px;color:var(--muted);align-self:flex-end"></div>
-  </div>
+  <!-- HERO -->
+  <section class="hero">
+    <div>
+      <div class="hero-eyebrow">Live demo</div>
+      <h1>An autonomous DeFi swarm <em>that explains itself.</em></h1>
+      <p>
+        Three specialised agents — researcher, risk, executor — work together to scan markets, score risk on 0G&nbsp;Compute, and route swaps through Uniswap and KeeperHub. They talk peer-to-peer over Gensyn AXL, identify by ENS, and persist a verifiable audit trail on 0G&nbsp;Storage.
+      </p>
 
-  <!-- Agent cards -->
-  <div class="agent-grid" id="agent-grid" style="padding:12px 16px 0"></div>
+      <div class="hero-narrator" id="narrator-card">
+        <div class="hero-narrator-label">What just happened</div>
+        <div class="hero-narrator-text" id="narrator-text">
+          Hit <em>Run a cycle</em> below to start the swarm. I'll narrate every step in plain English as the agents work.
+        </div>
+      </div>
 
-  <!-- Log -->
-  <div class="log-section" style="margin:12px 16px 16px">
-    <div class="log-header">
-      <span>Swarm History <span id="entry-count" style="color:var(--muted)"></span></span>
-      <span style="font-size:10px;color:var(--muted)" id="log-update"></span>
+      <div class="sponsor-row">
+        <div class="sponsor-chip"><span class="dot" style="background:#10b981"></span><strong>0G</strong>·storage+compute</div>
+        <div class="sponsor-chip"><span class="dot" style="background:#ff007a"></span><strong>Uniswap</strong>·trading API</div>
+        <div class="sponsor-chip"><span class="dot" style="background:#22d3ee"></span><strong>KeeperHub</strong>·execution</div>
+        <div class="sponsor-chip"><span class="dot" style="background:#f59e0b"></span><strong>Gensyn</strong>·AXL P2P</div>
+        <div class="sponsor-chip"><span class="dot" style="background:#5298ff"></span><strong>ENS</strong>·identity</div>
+      </div>
     </div>
-    <div class="log-scroll">
-      <div id="log-body"><div style="padding:24px;text-align:center;color:var(--muted)">No events yet — fire a signal to start</div></div>
+
+    <div class="hero-stats">
+      <div class="stat">
+        <span class="stat-k tip" data-tip="How many full researcher→risk→executor cycles have run">Cycles</span>
+        <span class="stat-v" id="hs-cycle">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Risk score from the AI agent (0=safe, 10=reject)">Last risk</span>
+        <span class="stat-v coral" id="hs-risk">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="What the swarm decided to do with the latest signal">Action</span>
+        <span class="stat-v" id="hs-action">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Latest swap transaction hash. Click to view on basescan.">Last tx</span>
+        <span class="stat-v green" id="hs-tx">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Most recent on-chain snapshot of the swarm's full state on 0G Storage. Verifiable proof of every decision.">0G snapshot</span>
+        <span class="stat-v" id="hs-snap">—</span>
+      </div>
     </div>
-  </div>
-  <div class="version-row" id="version-row" style="margin:-8px 16px 8px"></div>
+  </section>
+
+  <!-- AGENT CARDS -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">01</span>
+      <span class="section-title">The agents</span>
+      <span class="section-line"></span>
+    </div>
+
+    <div class="agent-grid">
+      <div class="agent-card" data-role="researcher">
+        <div class="agent-hd">
+          <div class="agent-id">
+            <div class="agent-icon">R</div>
+            <div>
+              <div class="agent-name">Researcher</div>
+              <div class="agent-ens">researcher.swarmfi.eth</div>
+            </div>
+          </div>
+          <span class="badge" id="b-researcher">idle</span>
+        </div>
+        <div class="agent-purpose">Market scanner</div>
+        <div class="agent-blurb">Watches the price of bluechip pairs on Base and writes the freshest signal to the swarm's shared memory.</div>
+        <div class="row"><span class="row-k">Pair</span>      <span class="row-v" id="r-pair">—</span></div>
+        <div class="row"><span class="row-k">Live price</span><span class="row-v" id="r-price">—</span></div>
+        <div class="row"><span class="row-k">Strength</span>  <span class="row-v" id="r-strength">—</span></div>
+      </div>
+
+      <div class="agent-card" data-role="risk">
+        <div class="agent-hd">
+          <div class="agent-id">
+            <div class="agent-icon">Σ</div>
+            <div>
+              <div class="agent-name">Risk</div>
+              <div class="agent-ens">risk.swarmfi.eth</div>
+            </div>
+          </div>
+          <span class="badge" id="b-risk">idle</span>
+        </div>
+        <div class="agent-purpose">AI risk scoring · 0G Compute</div>
+        <div class="agent-blurb">Reads each signal and asks an AI on 0G Compute to score it 0–10. Anything above the threshold is auto-rejected.</div>
+
+        <div class="dial-wrap">
+          <div class="dial">
+            <svg viewBox="0 0 36 36">
+              <circle class="dial-bg" cx="18" cy="18" r="15.9"></circle>
+              <circle class="dial-fg" id="dial-fg" cx="18" cy="18" r="15.9"></circle>
+            </svg>
+            <div class="dial-text">
+              <div class="dial-num" id="dial-num">—</div>
+              <div class="dial-lbl">risk · /10</div>
+            </div>
+          </div>
+        </div>
+        <div class="row"><span class="row-k">Decision</span>  <span class="row-v" id="rk-action">—</span></div>
+        <div class="row"><span class="row-k">Confidence</span><span class="row-v" id="rk-conf">—</span></div>
+      </div>
+
+      <div class="agent-card" data-role="executor">
+        <div class="agent-hd">
+          <div class="agent-id">
+            <div class="agent-icon">▶</div>
+            <div>
+              <div class="agent-name">Executor</div>
+              <div class="agent-ens">executor.swarmfi.eth</div>
+            </div>
+          </div>
+          <span class="badge" id="b-executor">idle</span>
+        </div>
+        <div class="agent-purpose">Uniswap → KeeperHub broadcast</div>
+        <div class="agent-blurb">Gets a swap quote from the Uniswap Trading API and submits it through KeeperHub for guaranteed delivery.</div>
+        <div class="row"><span class="row-k">Routing</span>  <span class="row-v" id="e-route">—</span></div>
+        <div class="row"><span class="row-k">Last tx</span>  <span class="row-v copyable" id="e-tx">—</span></div>
+        <div class="row"><span class="row-k">Status</span>   <span class="row-v" id="e-status">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE EDGE SCAN -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">02</span>
+      <span class="section-title">Live edge scan</span>
+      <span class="section-line"></span>
+      <span class="section-meta tip" data-tip="The researcher scans every bluechip pair on Base each cycle and picks the best by a composite edge score (momentum + bluechip + spread + size).">composite scoring</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="scan-table"><div class="story-empty">Loading edge scan…</div></div>
+    </div>
+  </section>
+
+  <!-- RUN A CYCLE -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">03</span>
+      <span class="section-title">Run a cycle</span>
+      <span class="section-line"></span>
+    </div>
+
+    <div class="panel">
+      <p class="panel-intro">
+        Inject a market signal and watch all three agents work. Behind the scenes: 0G&nbsp;Compute scores the risk, the Uniswap API builds the swap, KeeperHub broadcasts it, and 0G&nbsp;Storage commits an on-chain audit snapshot — all in a single click.
+      </p>
+
+      <div class="fire-grid">
+        <div class="field">
+          <span class="field-label tip" data-tip="Which pair the researcher will look at">Pair</span>
+          <select class="select" id="pair-select"></select>
+        </div>
+        <div class="field">
+          <span class="field-label tip" data-tip="How strong the price signal is. 'Strong' usually triggers a buy if risk allows.">Signal strength</span>
+          <select class="select" id="signal-select">
+            <option value="strong">strong</option>
+            <option value="medium" selected>medium</option>
+            <option value="weak">weak</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="field-label tip" data-tip="If the AI scores risk above this, the trade is auto-rejected.">Risk threshold</span>
+          <input class="input" id="risk-thresh" type="number" min="0" max="10" step="0.1" value="7.0">
+          <span class="field-help">Lower = more conservative</span>
+        </div>
+        <div class="field">
+          <span class="field-label tip" data-tip="How much input token to swap, in wei">Amount (wei)</span>
+          <input class="input" id="amount-wei" value="1000000000000000">
+          <span class="field-help">Default: 0.001 ETH</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;flex-wrap:wrap;gap:12px">
+        <div id="fire-status" class="fire-status"></div>
+        <button class="btn btn-primary" id="fire-btn" onclick="fireTrade()">▶ Run a cycle</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STORY -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">04</span>
+      <span class="section-title">What just happened</span>
+      <span class="section-line"></span>
+    </div>
+
+    <div class="story">
+      <div class="story-head">
+        <div class="story-head-l">
+          <div class="story-icon">✦</div>
+          <div>
+            <div class="story-title">Plain-English summary</div>
+            <div class="story-sub">Generated live from the latest cycle</div>
+          </div>
+        </div>
+        <div class="story-step-count" id="story-count">—</div>
+      </div>
+      <div class="story-body" id="story-body">
+        <div class="story-empty">No cycles yet. Hit <strong>Run a cycle</strong> above to see the swarm in action.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TIMELINE -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">05</span>
+      <span class="section-title">Technical timeline</span>
+      <span class="section-line"></span>
+      <span class="section-meta" id="log-update">—</span>
+    </div>
+    <div id="timeline" class="timeline">
+      <div class="tl-empty">Waiting for first event…</div>
+    </div>
+  </section>
 </div>
 
-<!-- ════ TAB 2: CHAT ════ -->
+<!-- ════════════════════════════════════════════════════════════
+     PANE — CHAT
+     ════════════════════════════════════════════════════════════ -->
 <div class="pane" id="pane-chat">
-  <div class="chat-messages" id="chat-messages">
-    <div class="msg msg-system">Connected to 0G Compute Network · GLM / Qwen model</div>
-    <div class="msg msg-ai">
-      <div class="msg-label">SwarmFi AI</div>
-      Hi! I'm your SwarmFi trading assistant running on the 0G Compute Network. I can help you configure your swarm, understand risk scores, choose token pairs, or explain how any component works.<br><br>
-      You can also use the <b>ENS Transfer</b> widget below to send tokens to any ENS name — your executor agent will resolve and execute it via KeeperHub.
-    </div>
-    <!-- ENS widget pinned in chat -->
-    <div class="ens-widget">
-      <h4>⟠ Send to ENS Address</h4>
-      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-        Executor resolves any ENS name → address and executes transfer via KeeperHub guaranteed delivery.
-      </div>
-      <div class="ens-row">
-        <input class="ens-input" id="ens-name" placeholder="vitalik.eth or 0x..." oninput="resolveENS()">
-        <input class="ens-input" id="ens-amount" placeholder="Amount e.g. 0.001" style="max-width:130px">
-        <select class="ens-input" id="ens-network" style="max-width:100px">
-          <option value="base">Base</option>
-          <option value="ethereum">Mainnet</option>
-          <option value="sepolia">Sepolia</option>
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="executeENSTransfer()">Send</button>
-      </div>
-      <div class="resolved-addr" id="ens-resolved"></div>
-      <div id="ens-result" style="font-size:11px;margin-top:4px"></div>
-    </div>
+  <div class="section-hdr">
+    <span class="section-num">⌘</span>
+    <span class="section-title">Talk to the swarm</span>
+    <span class="section-line"></span>
+    <span class="section-meta">via 0G Compute</span>
   </div>
 
-  <div class="quick-btns">
-    <button class="quick-btn" onclick="quickSend('What is the current risk threshold and how should I tune it?')">Risk threshold guide</button>
-    <button class="quick-btn" onclick="quickSend('Explain how 0G Compute scores risk for a trade')">How risk scoring works</button>
-    <button class="quick-btn" onclick="quickSend('What ETH/USDC price signal should I look for on Base?')">ETH/USDC signals</button>
-    <button class="quick-btn" onclick="quickSend('What does KeeperHub add over direct web3 broadcasting?')">KeeperHub advantage</button>
-    <button class="quick-btn" onclick="loadRecentAndAsk()">Analyse recent decisions</button>
-    <button class="quick-btn" onclick="quickSend('Suggest an aggressive vs conservative swarm config')">Strategy configs</button>
-  </div>
-
-  <div class="chat-input-row">
-    <textarea id="chat-input" rows="1" placeholder="Ask about trading strategies, risk configuration, or token pairs…"
-      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
-      oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
-    <button class="btn btn-primary" onclick="sendChat()" id="send-btn">Send</button>
+  <div class="chat-wrap">
+    <aside class="chat-side">
+      <div class="chat-side-hd">Quick prompts</div>
+      <button class="qbtn" onclick="quickSend('Walk me through the last cycle in plain English.')">Walk through the last cycle</button>
+      <button class="qbtn" onclick="quickSend('Why did the risk agent score what it did?')">Why that risk score?</button>
+      <button class="qbtn" onclick="quickSend('How is risk threshold tuned, and what should I set it to?')">Tune the risk threshold</button>
+      <button class="qbtn" onclick="quickSend('What does KeeperHub add over a direct web3 broadcast?')">Why KeeperHub?</button>
+      <button class="qbtn" onclick="quickSend('How is Gensyn AXL used between the agents?')">How does AXL work here?</button>
+      <button class="qbtn" onclick="loadRecentAndAsk()">Audit recent decisions</button>
+    </aside>
+    <main class="chat-main">
+      <div class="chat-msgs" id="chat-messages">
+        <div class="msg msg-ai">
+          <div class="msg-label">SwarmFi AI</div>
+          I'm the in-app voice of this swarm — running on 0G Compute, grounded in the swarm's actual state. Ask me anything about the latest cycle, the risk score, the snapshot root, or how each piece fits together.
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask about the latest cycle, risk scoring, KeeperHub, AXL…"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
+          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+        <button class="btn btn-primary" id="send-btn" onclick="sendChat()">Send</button>
+      </div>
+    </main>
   </div>
 </div>
+
+<!-- ════════════════════════════════════════════════════════════
+     PANE — ENS
+     ════════════════════════════════════════════════════════════ -->
+<div class="pane" id="pane-ens">
+  <div class="section-hdr">
+    <span class="section-num">⌘</span>
+    <span class="section-title">Send to an ENS name</span>
+    <span class="section-line"></span>
+  </div>
+  <div class="panel">
+    <p class="panel-intro">
+      Resolve any <span style="font-family:var(--mono)">.eth</span> name and submit the transfer through KeeperHub for guaranteed delivery — gas pricing, nonce, and MEV protection handled automatically.
+    </p>
+    <div class="ens-grid">
+      <div class="field">
+        <span class="field-label">Recipient ENS or address</span>
+        <input class="input" id="ens-name" placeholder="vitalik.eth or 0x…" oninput="resolveENS()">
+        <div class="ens-resolved" id="ens-resolved"></div>
+      </div>
+      <div class="field">
+        <span class="field-label">Amount (ETH)</span>
+        <input class="input" id="ens-amount" placeholder="0.001">
+      </div>
+      <div class="field">
+        <span class="field-label">Network</span>
+        <select class="select" id="ens-network">
+          <option value="ethereum">Ethereum</option>
+          <option value="base">Base</option>
+        </select>
+      </div>
+      <button class="btn btn-success" onclick="executeENSTransfer()">Send via KeeperHub</button>
+    </div>
+    <div id="ens-result" style="margin-top:14px;font-family:var(--mono);font-size:12px"></div>
+  </div>
+</div>
+
+<footer>
+  <div class="gap-row">
+    <span>SwarmFi · ETHGlobal OpenAgents</span>
+    <span>·</span>
+    <a href="https://build.0g.ai" target="_blank">0G</a>
+    <a href="https://developers.uniswap.org/" target="_blank">Uniswap</a>
+    <a href="https://docs.keeperhub.com/" target="_blank">KeeperHub</a>
+    <a href="https://docs.gensyn.ai/tech/agent-exchange-layer" target="_blank">Gensyn AXL</a>
+    <a href="https://docs.ens.domains/" target="_blank">ENS</a>
+  </div>
+  <div class="mono" id="footer-version">—</div>
+</footer>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
+   STATE
+   ─────────────────────────────────────────────────────────────────────────── */
 let chatHistory = [];
-let lastLogLen  = 0;
 let pairs       = [];
 
-// ── Tab switching ─────────────────────────────────────────────────────────────
-function switchTab(t) {
-  document.querySelectorAll('.tab').forEach((el, i) => {
-    el.classList.toggle('active', (i === 0 && t === 'monitor') || (i === 1 && t === 'chat'));
+/* ───────────────────────────────────────────────────────────────────────────
+   INIT
+   ─────────────────────────────────────────────────────────────────────────── */
+window.addEventListener("DOMContentLoaded", () => {
+  // Subtle reveal — one short timeline only, no continuous animation
+  gsap.from(".hero", { y: 12, opacity: 0, duration: .6, ease: "power2.out" });
+  gsap.from(".agent-card", { y: 14, opacity: 0, duration: .5, stagger: .08, delay: .15, ease: "power2.out" });
+
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", () => switchTab(t.dataset.tab));
   });
-  document.querySelectorAll('.pane').forEach((el) => {
-    el.classList.toggle('active', el.id === 'pane-' + t);
+
+  document.body.addEventListener("click", (e) => {
+    const c = e.target.closest(".copyable");
+    if (!c) return;
+    const t = c.textContent.trim();
+    if (!t || t === "—") return;
+    navigator.clipboard.writeText(t).then(() => {
+      const orig = c.style.color; c.style.color = "var(--green)";
+      setTimeout(() => { c.style.color = orig; }, 700);
+    });
   });
+
+  loadPairs();
+  poll();
+  setInterval(poll, 4000);
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+   TABS
+   ─────────────────────────────────────────────────────────────────────────── */
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("active", p.id === "pane-" + name));
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-function riskColor(s) {
-  if (s <= 3) return '#22c55e'; if (s <= 6) return '#f59e0b'; return '#ef4444';
-}
-function shortHash(h) { return h ? h.slice(0,8)+'…'+h.slice(-6) : '—'; }
-function ago(ts) {
-  if (!ts) return '';
+/* ───────────────────────────────────────────────────────────────────────────
+   HELPERS
+   ─────────────────────────────────────────────────────────────────────────── */
+const SHORT = h => h ? (h.length <= 18 ? h : h.slice(0, 10) + "…" + h.slice(-6)) : "—";
+const ago = ts => {
+  if (!ts) return "";
   const d = (Date.now() - new Date(ts)) / 1000;
-  if (d < 60) return Math.round(d) + 's ago';
-  if (d < 3600) return Math.round(d/60) + 'm ago';
-  return Math.round(d/3600) + 'h ago';
+  if (d < 60)  return Math.round(d) + "s ago";
+  if (d < 3600) return Math.round(d/60) + "m ago";
+  return Math.round(d/3600) + "h ago";
+};
+const explorerForTx = tx => tx ? `https://basescan.org/tx/${tx}` : null;
+const explorerForSnapshot = root => root ? `https://chainscan-galileo.0g.ai/tx/${root}` : null;
+const riskBand = s => s == null ? "" : s <= 3 ? "low" : s <= 6 ? "mid" : "high";
+const riskColor = s => s == null ? "var(--accent)" : s <= 3 ? "var(--green)" : s <= 6 ? "var(--amber)" : "var(--rose)";
+
+/* ───────────────────────────────────────────────────────────────────────────
+   PAIRS
+   ─────────────────────────────────────────────────────────────────────────── */
+async function loadPairs(){
+  try{
+    const r = await fetch("/api/pairs");
+    pairs = await r.json();
+    const sel = document.getElementById("pair-select");
+    sel.innerHTML = pairs.map((p,i) => `<option value="${i}">${p.label}</option>`).join("");
+  }catch(_){}
 }
 
-// ── Load pairs ────────────────────────────────────────────────────────────────
-async function loadPairs() {
-  try {
-    const r = await fetch('/api/pairs'); pairs = await r.json();
-    const sel = document.getElementById('pair-select');
-    sel.innerHTML = pairs.map((p,i) => `<option value="${i}">${p.label}</option>`).join('');
-  } catch(_) {}
+/* ───────────────────────────────────────────────────────────────────────────
+   AGENT RENDER
+   ─────────────────────────────────────────────────────────────────────────── */
+function setBadge(role, status) {
+  const el = document.getElementById("b-" + role);
+  if (!el) return;
+  el.textContent = (status || "idle").toLowerCase();
+  const card = document.querySelector(`.agent-card[data-role="${role}"]`);
+  const active = status && status.toUpperCase() !== "IDLE";
+  el.classList.toggle("badge-active", active);
+  if (card) card.dataset.active = active ? "true" : "false";
 }
 
-// ── Render agents ─────────────────────────────────────────────────────────────
-function renderAgents(agents) {
-  const grid = document.getElementById('agent-grid');
-  const roles = ['researcher','risk','executor'];
-  grid.innerHTML = roles.map(role => {
-    const a = agents[role] || {};
-    const status  = a.status || 'idle';
-    const score   = a.last_risk_score;
-    const signal  = a.last_signal || {};
-    const tx      = a.last_tx_hash;
-    const ts      = a.last_seen;
+function renderState(state) {
+  const agents = state.agents || {};
+  const r  = agents.researcher || {};
+  const rk = agents.risk       || {};
+  const ex = agents.executor   || {};
 
-    const scoreHtml = role === 'risk' && score != null ? `
-      <div class="risk-wrap">
-        <div class="risk-label"><span>Risk Score</span><span style="color:${riskColor(score)}">${score.toFixed(1)}/10</span></div>
-        <div class="risk-track"><div class="risk-fill" style="width:${score*10}%;background:${riskColor(score)}"></div></div>
-      </div>` : '';
+  setBadge("researcher", r.status);
+  setBadge("risk",       rk.status);
+  setBadge("executor",   ex.status);
 
-    const signalHtml = signal.token_in ? `
-      <div class="metric"><span class="metric-k">Pair</span><span class="metric-v">${signal.token_in?.slice(0,6)||'ETH'} → ${signal.token_out?.slice(0,6)||'USDC'}</span></div>
-      <div class="metric"><span class="metric-k">Strength</span><span class="metric-v">${signal.signal||'—'}</span></div>
-    ` : '';
+  const sig = r.last_signal || {};
+  const inSym  = sig.token_in_sym  || (sig.token_in  ? sig.token_in.slice(0,6)  : "—");
+  const outSym = sig.token_out_sym || (sig.token_out ? sig.token_out.slice(0,6) : "—");
+  document.getElementById("r-pair").textContent     = (sig.token_in||sig.token_out) ? `${inSym} → ${outSym}` : "—";
+  document.getElementById("r-price").textContent    = sig.price_usd ? "$" + Number(sig.price_usd).toFixed(2) : "—";
+  document.getElementById("r-strength").textContent = sig.signal || "—";
 
-    const txHtml = tx ? `<div class="metric"><span class="metric-k">Last Tx</span><span class="metric-v">${shortHash(tx)}</span></div>` : '';
-    const tsHtml = ts ? `<div class="metric"><span class="metric-k">Updated</span><span class="metric-v">${ago(ts)}</span></div>` : '';
+  const score = rk.last_risk_score;
+  const fg    = document.getElementById("dial-fg");
+  const num   = document.getElementById("dial-num");
+  if (score != null) {
+    fg.style.stroke = riskColor(score);
+    fg.setAttribute("stroke-dasharray", `${Math.max(0, Math.min(100, score * 10))} 100`);
+    gsap.to(num, { textContent: score.toFixed(1), duration: .5, ease: "power2.out",
+      snap: { textContent: 0.1 },
+      onUpdate: function(){ num.textContent = parseFloat(num.textContent).toFixed(1); }
+    });
+  } else {
+    fg.setAttribute("stroke-dasharray", "0 100");
+    num.textContent = "—";
+  }
+  document.getElementById("rk-action").textContent = (rk.last_action || "—").toUpperCase();
+  document.getElementById("rk-conf").textContent   = rk.last_confidence != null
+    ? Math.round(rk.last_confidence*100) + "%" : "—";
 
-    return `<div class="card">
-      <div class="card-top">
-        <div>
-          <div class="card-role">${role}</div>
-          <div class="card-name">${role.charAt(0).toUpperCase()+role.slice(1)}</div>
-          <div class="card-ens">${role}.swarmfi.eth</div>
-        </div>
-        <span class="badge badge-${status}">${status}</span>
-      </div>
-      ${scoreHtml}${signalHtml}${txHtml}${tsHtml}
-    </div>`;
-  }).join('');
+  document.getElementById("e-route").textContent  = ex.last_routing || "Uniswap";
+  const tx = ex.last_tx_hash;
+  document.getElementById("e-tx").textContent     = SHORT(tx);
+  document.getElementById("e-status").textContent = (ex.status || "idle").toLowerCase();
+
+  // Hero stats
+  document.getElementById("hs-cycle").textContent  = state.version ? "#" + state.version : "—";
+  document.getElementById("hs-risk").textContent   = score != null ? score.toFixed(1) + " / 10" : "—";
+  document.getElementById("hs-action").textContent = (rk.last_action || "—").toUpperCase();
+  const hsTx = document.getElementById("hs-tx");
+  hsTx.innerHTML = tx ? `<a href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>` : "—";
+
+  const snap = state.snapshot_root;
+  document.getElementById("hs-snap").textContent = SHORT(snap);
+  const pill = document.getElementById("snapshot-pill");
+  if (snap) {
+    pill.style.display = "flex";
+    pill.href = explorerForSnapshot(snap) || "#";
+    document.getElementById("snapshot-text").textContent = SHORT(snap);
+  } else {
+    pill.style.display = "none";
+  }
+
+  return { sig, rk, ex, score, snap, version: state.version || 0 };
 }
 
-// ── Render log ────────────────────────────────────────────────────────────────
-function renderLog(entries) {
-  const body = document.getElementById('log-body');
-  document.getElementById('entry-count').textContent = entries.length ? `(${entries.length})` : '';
-  if (!entries.length) {
-    body.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted)">No events yet</div>';
+/* ───────────────────────────────────────────────────────────────────────────
+   STORY (the plain-English narrator)
+   ─────────────────────────────────────────────────────────────────────────── */
+function renderStory(ctx) {
+  const body  = document.getElementById("story-body");
+  const count = document.getElementById("story-count");
+  const { sig, rk, ex, score, snap, version } = ctx;
+
+  if (!version) {
+    body.innerHTML = '<div class="story-empty">No cycles yet. Hit <strong>Run a cycle</strong> above to see the swarm in action.</div>';
+    count.textContent = "—";
+    document.getElementById("narrator-text").innerHTML = "Hit <em>Run a cycle</em> below to start the swarm. I'll narrate every step in plain English as the agents work.";
     return;
   }
-  body.innerHTML = `<table>
-    <thead><tr><th>Time</th><th>Event</th><th>Agent</th><th>Details</th></tr></thead>
-    <tbody>${entries.slice().reverse().map(e => {
-      const t   = new Date(e.timestamp).toLocaleTimeString();
-      const cls = 'evt-' + e.event_type;
-      const det = Object.entries(e.data||{})
-        .filter(([k])=>!['status','agent_role','token_in','token_out','chain_id'].includes(k))
-        .slice(0,3)
-        .map(([k,v])=>`${k}: ${typeof v === 'number' ? (Number.isInteger(v)?v:v.toFixed(3)) : String(v).slice(0,22)}`)
-        .join(' · ') || '—';
-      return `<tr><td style="color:var(--muted);white-space:nowrap">${t}</td><td class="${cls}">${e.event_type.replace('_',' ')}</td><td style="color:var(--muted)">${e.agent_role}</td><td style="color:var(--muted)">${det}</td></tr>`;
-    }).join('')}</tbody></table>`;
+
+  const inSym  = sig.token_in_sym  || "input";
+  const outSym = sig.token_out_sym || "output";
+  const price  = sig.price_usd ? `$${Number(sig.price_usd).toFixed(2)}` : "an unknown price";
+  const strength = sig.signal || "medium";
+  const action = (rk.last_action || "hold").toLowerCase();
+  const conf   = rk.last_confidence != null ? Math.round(rk.last_confidence * 100) + "%" : "—";
+  const tx     = ex.last_tx_hash;
+
+  // Step 1
+  const step1 = `
+    <div class="story-step success">
+      <div class="story-num">1</div>
+      <div class="story-text">
+        <strong>Researcher</strong> scanned <em>${inSym} → ${outSym}</em> on Base and saw a <em>${strength}</em> signal at <span class="v">${price}</span>.
+        It wrote the signal to 0G&nbsp;Storage so the rest of the swarm can read the same record.
+      </div>
+    </div>`;
+
+  // Step 2
+  let step2Class = "success", step2Text;
+  if (score == null) {
+    step2Class = "warning";
+    step2Text = `<strong>Risk agent</strong> hasn't returned a score yet — waiting on 0G&nbsp;Compute.`;
+  } else if (action === "hold") {
+    step2Class = "warning";
+    step2Text = `<strong>Risk agent</strong> scored the signal <span class="v">${score.toFixed(1)} / 10</span> on 0G&nbsp;Compute and chose to <em>HOLD</em>. Above the configured risk threshold — the swarm refuses to trade.`;
+  } else {
+    step2Text  = `<strong>Risk agent</strong> scored the signal <span class="v">${score.toFixed(1)} / 10</span> on 0G&nbsp;Compute. Confidence <span class="v">${conf}</span>. Approved an <em>${action.toUpperCase()}</em>.`;
+  }
+  const step2 = `<div class="story-step ${step2Class}"><div class="story-num">2</div><div class="story-text">${step2Text}</div></div>`;
+
+  // Step 3
+  let step3Class, step3Text;
+  if (action === "hold") {
+    step3Class = "warning";
+    step3Text  = `<strong>Executor</strong> stood down — risk agent rejected the trade. No swap submitted.`;
+  } else if (tx) {
+    step3Class = "success";
+    step3Text  = `<strong>Executor</strong> got a quote from the Uniswap Trading API and submitted it through KeeperHub for guaranteed delivery. Tx <a class="ext" href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>.`;
+  } else {
+    step3Class = "warning";
+    step3Text  = `<strong>Executor</strong> built the swap and handed it to KeeperHub. Settlement is queued — view it on <a class="ext" href="https://app.keeperhub.com" target="_blank">app.keeperhub.com</a>.`;
+  }
+  const step3 = `<div class="story-step ${step3Class}"><div class="story-num">3</div><div class="story-text">${step3Text}</div></div>`;
+
+  // Step 4
+  const step4 = snap ? `
+    <div class="story-step success">
+      <div class="story-num">4</div>
+      <div class="story-text">
+        <strong>0G&nbsp;Storage</strong> committed an on-chain snapshot of the entire swarm state — every signal, decision, and tx — as a verifiable proof.
+        Snapshot root <a class="ext" href="${explorerForSnapshot(snap)}" target="_blank">${SHORT(snap)}</a>.
+      </div>
+    </div>` : "";
+
+  body.innerHTML = step1 + step2 + step3 + step4;
+  count.textContent = `cycle #${version}`;
+
+  // Update the hero narrator one-liner
+  let oneLine;
+  if (action === "hold") {
+    oneLine = `Risk agent rejected this <em>${inSym}→${outSym}</em> signal at <span class="v">${score?.toFixed(1) || "?"}/10</span>. Standing down for safety.`;
+  } else if (tx) {
+    oneLine = `Bought <em>${outSym}</em> with <em>${inSym}</em> at <span class="v">${price}</span>. Risk <span class="v">${score?.toFixed(1)}/10</span>. Settled on-chain — tx <a class="ext" href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>.`;
+  } else {
+    oneLine = `Approved a <em>${(action||"trade").toUpperCase()}</em> on <em>${inSym}→${outSym}</em>. Submitted to KeeperHub — settlement queued.`;
+  }
+  document.getElementById("narrator-text").innerHTML = oneLine;
+
+  // Subtle reveal each new cycle
+  gsap.from("#story-body .story-step", { y: 6, opacity: 0, duration: .35, stagger: .07, ease: "power2.out" });
 }
 
-// ── Poll real state ───────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
+   TIMELINE
+   ─────────────────────────────────────────────────────────────────────────── */
+function renderLog(entries) {
+  const tl = document.getElementById("timeline");
+  if (!entries || !entries.length) {
+    tl.innerHTML = '<div class="tl-empty">Waiting for first event…</div>';
+    return;
+  }
+  const rows = entries.slice().reverse().slice(0, 30).map(e => {
+    const t   = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "—";
+    const evt = (e.event_type || "EVENT").replace(/_/g, " ");
+    const cls = e.event_type || "";
+    const data = e.data || {};
+    const bits = [];
+    if (data.action     != null) bits.push(`action=${String(data.action).toUpperCase()}`);
+    if (data.risk_score != null) bits.push(`risk=${Number(data.risk_score).toFixed(1)}`);
+    if (data.price_usd  != null) bits.push(`$${Number(data.price_usd).toFixed(0)}`);
+    if (data.tx_hash)            bits.push(`tx=${SHORT(data.tx_hash)}`);
+    if (data.error)              bits.push(`err=${String(data.error).slice(0, 60)}`);
+    return `<div class="tl-row">
+      <span class="tl-time">${t}</span>
+      <span class="tl-evt ${cls}">${evt}</span>
+      <span class="tl-agent">${e.agent_role || "—"}</span>
+      <span class="tl-detail">${bits.join(" · ") || "—"}</span>
+    </div>`;
+  }).join("");
+  tl.innerHTML = rows;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   POLL
+   ─────────────────────────────────────────────────────────────────────────── */
+function renderScan(scan) {
+  const root = document.getElementById("scan-table");
+  if (!scan || !scan.ranked || !scan.ranked.length) {
+    root.innerHTML = '<div class="story-empty">No pairs available — check CoinGecko connectivity.</div>';
+    return;
+  }
+  const bestId = scan.best?.pair_id;
+  const rows = scan.ranked.map(r => {
+    const isBest = r.pair_id === bestId;
+    const pct = (r.composite * 100).toFixed(0);
+    const upDown = (r.momentum_24h || 0) >= 0 ? "up" : "down";
+    const arrow = (r.momentum_24h || 0) >= 0 ? "▲" : "▼";
+    return `<tr class="${isBest ? 'best' : ''}">
+      <td>${r.label}</td>
+      <td class="num">$${Number(r.price_usd || 0).toFixed(2)}</td>
+      <td class="num ${upDown}">${arrow} ${Math.abs(r.momentum_24h || 0).toFixed(2)}%</td>
+      <td><div class="composite-bar"><div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div><span>${r.composite.toFixed(2)}</span></div></td>
+      <td><span class="signal-pill signal-${r.signal}">${r.signal}</span></td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="scan-tbl">
+    <thead><tr><th>Pair</th><th class="num">Price</th><th class="num">24h</th><th>Composite edge</th><th>Signal</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 async function poll() {
   try {
-    const [sr, lr] = await Promise.all([fetch('/api/state'), fetch('/api/log')]);
+    const [sr, lr, scn] = await Promise.all([
+      fetch("/api/state"), fetch("/api/log"), fetch("/api/scan"),
+    ]);
     const state = await sr.json();
     const log   = await lr.json();
-
-    if (state.agents && Object.keys(state.agents).length > 0) {
-      renderAgents(state.agents);
-    } else {
-      renderAgents({});   // show empty cards
-    }
+    const scan  = await scn.json().catch(() => ({}));
+    const ctx = renderState(state);
+    renderStory(ctx);
     renderLog(log);
+    renderScan(scan);
 
-    document.getElementById('version-row').textContent = state.version
-      ? `State version: ${state.version} · updated ${ago(state.updated_at)}`
-      : 'Waiting for first trade cycle…';
-
-    document.getElementById('status-txt').textContent = 'Live · ' + new Date().toLocaleTimeString();
-    document.getElementById('pulse').style.background = 'var(--green)';
-    document.getElementById('log-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } catch(_) {
-    document.getElementById('status-txt').textContent = 'Connection error';
-    document.getElementById('pulse').style.background = 'var(--red)';
+    document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
+    document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();
+    document.getElementById("footer-version").textContent =
+      state.version ? `cycle #${state.version} · ${ago(state.updated_at)}` : "no cycles yet";
+  } catch (e) {
+    document.getElementById("live-txt").textContent = "Connection error";
   }
 }
 
-// ── Fire trade signal ─────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
+   FIRE SIGNAL
+   ─────────────────────────────────────────────────────────────────────────── */
 async function fireTrade() {
-  const pairIdx = parseInt(document.getElementById('pair-select').value || '0');
+  const pairIdx = parseInt(document.getElementById("pair-select").value || "0");
   const pair    = pairs[pairIdx] || {};
-  const signal  = document.getElementById('signal-select').value;
-  const thresh  = parseFloat(document.getElementById('risk-thresh').value);
-  const amount  = parseInt(document.getElementById('amount-wei').value.replace(/\s/g,''));
-  const btn     = document.getElementById('fire-btn');
-  const status  = document.getElementById('fire-status');
+  const signal  = document.getElementById("signal-select").value;
+  const thresh  = parseFloat(document.getElementById("risk-thresh").value);
+  const amount  = parseInt(String(document.getElementById("amount-wei").value).replace(/\s/g, ""));
+  const btn     = document.getElementById("fire-btn");
+  const status  = document.getElementById("fire-status");
 
-  // Update config first
-  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'},
+  await fetch("/api/config", { method: "POST", headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ risk_threshold: thresh }) });
 
-  btn.disabled = true;
-  btn.textContent = '⏳ Running…';
-  status.textContent = 'Researcher → Risk AI → Executor…';
+  btn.disabled = true; btn.textContent = "⏳ Running…";
+  status.textContent = "Researcher → Risk → Executor…";
 
   try {
-    const r = await fetch('/api/signal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const r = await fetch("/api/signal", {
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
-        token_in:  pair.token_in  || '0x0000000000000000000000000000000000000000',
-        token_out: pair.token_out || '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        token_in:  pair.token_in  || "0x0000000000000000000000000000000000000000",
+        token_out: pair.token_out || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         chain_id:  pair.chain_id  || 8453,
-        signal:    signal,
-        reason:    `Manual signal: ${pair.label||'ETH→USDC'} strength=${signal}`,
+        signal: signal,
+        reason: `Manual signal · ${pair.label || 'ETH→USDC'} · strength=${signal}`,
         amount_wei: amount,
       })
     });
     const data = await r.json();
-    status.style.color = 'var(--green)';
-    status.textContent = `Signal fired · price=$${(data.signal?.price_usd||0).toFixed(0)} · polling...`;
-    setTimeout(() => { status.textContent=''; status.style.color='var(--muted)'; }, 8000);
-  } catch(e) {
-    status.style.color = 'var(--red)';
-    status.textContent = 'Error: ' + e.message;
+    status.textContent = `✓ Fired · price=$${(data.signal?.price_usd || 0).toFixed(0)} · settling…`;
+    setTimeout(() => { status.textContent = ""; }, 9000);
+  } catch (e) {
+    status.textContent = "✗ " + e.message;
   } finally {
-    btn.disabled = false;
-    btn.textContent = '▶ Fire Signal';
-    setTimeout(poll, 3000);
+    btn.disabled = false; btn.textContent = "▶ Run a cycle";
+    setTimeout(poll, 2500);
   }
 }
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────────
+   CHAT
+   ─────────────────────────────────────────────────────────────────────────── */
 function appendMsg(role, text, isTyping=false) {
-  const box = document.getElementById('chat-messages');
-  const el  = document.createElement('div');
-  el.className = role === 'user' ? 'msg msg-user' : 'msg msg-ai';
-  if (role === 'ai') {
+  const box = document.getElementById("chat-messages");
+  const el  = document.createElement("div");
+  el.className = role === "user" ? "msg msg-user" : "msg msg-ai";
+  if (role === "ai") {
     if (isTyping) {
-      el.innerHTML = '<div class="msg-label">SwarmFi AI</div><div class="typing-dots"><span></span><span></span><span></span></div>';
-      el.id = 'typing-indicator';
+      el.innerHTML = '<div class="msg-label">SwarmFi AI</div><div class="typing"><span></span><span></span><span></span></div>';
+      el.id = "typing-indicator";
     } else {
-      // Format code blocks
-      const formatted = text.replace(/```([\s\S]*?)```/g, '<pre>$1</pre>').replace(/\n/g,'<br>');
+      const formatted = String(text).replace(/```([\s\S]*?)```/g, "<pre>$1</pre>").replace(/\n/g, "<br>");
       el.innerHTML = `<div class="msg-label">SwarmFi AI</div>${formatted}`;
     }
   } else {
@@ -430,120 +1201,97 @@ function appendMsg(role, text, isTyping=false) {
 }
 
 async function sendChat() {
-  const inp = document.getElementById('chat-input');
-  const btn = document.getElementById('send-btn');
+  const inp = document.getElementById("chat-input");
+  const btn = document.getElementById("send-btn");
   const text = inp.value.trim();
   if (!text) return;
-
-  inp.value = ''; inp.style.height = 'auto';
+  inp.value = ""; inp.style.height = "auto";
   btn.disabled = true;
 
-  appendMsg('user', text);
-  chatHistory.push({ role: 'user', content: text });
-
-  const typing = appendMsg('ai', '', true);
+  appendMsg("user", text);
+  chatHistory.push({ role: "user", content: text });
+  const typing = appendMsg("ai", "", true);
 
   try {
-    const r = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const r = await fetch("/api/chat", {
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ messages: chatHistory })
     });
     const data = await r.json();
     typing.remove();
-    const reply = data.reply || '(no response)';
-    appendMsg('ai', reply);
-    chatHistory.push({ role: 'assistant', content: reply });
-  } catch(e) {
+    const reply = data.reply || "(no response)";
+    appendMsg("ai", reply);
+    chatHistory.push({ role: "assistant", content: reply });
+  } catch (e) {
     typing.remove();
-    appendMsg('ai', 'Connection error: ' + e.message);
+    appendMsg("ai", "Connection error: " + e.message);
   } finally {
-    btn.disabled = false;
-    inp.focus();
+    btn.disabled = false; inp.focus();
   }
 }
 
 function quickSend(text) {
-  document.getElementById('chat-input').value = text;
+  switchTab("chat");
+  document.getElementById("chat-input").value = text;
   sendChat();
-  switchTab('chat');
 }
 
 async function loadRecentAndAsk() {
-  const log = await fetch('/api/log').then(r=>r.json()).catch(()=>[]);
-  const summary = log.slice(-10).map(e=>
-    `[${e.agent_role}] ${e.event_type}: ${JSON.stringify(e.data).slice(0,80)}`
-  ).join('\n');
+  const log = await fetch("/api/log").then(r=>r.json()).catch(()=>[]);
+  const summary = log.slice(-10).map(e =>
+    `[${e.agent_role}] ${e.event_type}: ${JSON.stringify(e.data).slice(0,90)}`
+  ).join("\n");
   const prompt = summary
-    ? `Here are the last ${Math.min(log.length,10)} swarm events:\n${summary}\n\nPlease analyse these decisions — were they good? Any patterns?`
-    : 'There are no recorded events yet. How should I configure the swarm to start trading?';
+    ? `Audit these last ${Math.min(log.length,10)} swarm events. Were the decisions correct? Any patterns?\n\n${summary}`
+    : "There are no recorded events yet. How should I configure the swarm to start trading?";
   quickSend(prompt);
 }
 
-// ── ENS Transfer ──────────────────────────────────────────────────────────────
-let ensResolveTimer = null;
+/* ───────────────────────────────────────────────────────────────────────────
+   ENS TRANSFER
+   ─────────────────────────────────────────────────────────────────────────── */
+let ensTimer = null;
 async function resolveENS() {
-  clearTimeout(ensResolveTimer);
-  const name = document.getElementById('ens-name').value.trim();
-  if (!name) { document.getElementById('ens-resolved').textContent = ''; return; }
-  ensResolveTimer = setTimeout(async () => {
+  clearTimeout(ensTimer);
+  const name = document.getElementById("ens-name").value.trim();
+  const out  = document.getElementById("ens-resolved");
+  if (!name) { out.textContent = ""; return; }
+  ensTimer = setTimeout(async () => {
     try {
       const r = await fetch(`/api/ens/resolve/${encodeURIComponent(name)}`);
       const d = await r.json();
-      const el = document.getElementById('ens-resolved');
-      if (d.resolved) {
-        el.textContent = `✓ ${d.address}`;
-        el.style.color = 'var(--green)';
-      } else {
-        el.textContent = '✗ Could not resolve';
-        el.style.color = 'var(--red)';
-      }
+      if (d.resolved) { out.style.color = "var(--green)"; out.textContent = "✓ " + d.address; }
+      else            { out.style.color = "var(--rose)";  out.textContent = "✗ Could not resolve"; }
     } catch(_) {}
   }, 600);
 }
 
 async function executeENSTransfer() {
-  const recipient = document.getElementById('ens-name').value.trim();
-  const amount    = document.getElementById('ens-amount').value.trim();
-  const network   = document.getElementById('ens-network').value;
-  const resultEl  = document.getElementById('ens-result');
-
-  if (!recipient || !amount) {
-    resultEl.style.color = 'var(--yellow)';
-    resultEl.textContent = 'Enter recipient and amount.';
-    return;
-  }
-
-  resultEl.style.color = 'var(--muted)';
-  resultEl.textContent = '⏳ Resolving & executing via KeeperHub…';
-
+  const recipient = document.getElementById("ens-name").value.trim();
+  const amount    = document.getElementById("ens-amount").value.trim();
+  const network   = document.getElementById("ens-network").value;
+  const out       = document.getElementById("ens-result");
+  if (!recipient || !amount) { out.style.color = "var(--amber)"; out.textContent = "Enter recipient and amount."; return; }
+  out.style.color = "var(--muted)";
+  out.textContent = "⏳ Resolving & submitting via KeeperHub…";
   try {
-    const r = await fetch('/api/transfer', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const r = await fetch("/api/transfer", {
+      method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ recipient, amount, network })
     });
     const d = await r.json();
     if (r.ok) {
-      resultEl.style.color = 'var(--green)';
-      resultEl.textContent = `✓ Submitted · exec_id: ${d.execution_id?.slice(0,14)} · resolved: ${d.resolved_address?.slice(0,12)}…`;
-      appendMsg('ai',
-        `Transfer executed:\n- To: ${d.recipient} → ${d.resolved_address}\n- Amount: ${d.amount} ETH\n- KeeperHub execution: ${d.execution_id}\n\nKeeperHub handles gas pricing, nonce management, and MEV protection. Track it at app.keeperhub.com.`
-      );
+      out.style.color = "var(--green)";
+      out.textContent = `✓ Submitted · exec ${SHORT(d.execution_id)} · resolved ${SHORT(d.resolved_address)}`;
     } else {
-      resultEl.style.color = 'var(--red)';
-      resultEl.textContent = `✗ ${d.detail || 'failed'}`;
+      out.style.color = "var(--rose)";
+      out.textContent = "✗ " + (d.detail || "failed");
     }
-  } catch(e) {
-    resultEl.style.color = 'var(--red)';
-    resultEl.textContent = '✗ ' + e.message;
+  } catch (e) {
+    out.style.color = "var(--rose)";
+    out.textContent = "✗ " + e.message;
   }
 }
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-loadPairs();
-poll();
-setInterval(poll, 4000);
 </script>
 </body>
 </html>

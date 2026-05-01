@@ -163,15 +163,14 @@ header{
 }
 .hero-narrator{
   background:var(--accent-soft);border:1px solid #f3d4cb;
-  border-radius:var(--radius);padding:18px 20px;margin-top:22px;
+  border-radius:var(--radius);padding:14px 18px;margin-top:18px;
+  display:flex;align-items:center;gap:10px;
 }
-.hero-narrator-label{
-  display:flex;align-items:center;gap:7px;
-  font-size:10.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
-  color:var(--accent);margin-bottom:10px;
+.hero-narrator::before{
+  content:"●";color:var(--accent);font-size:10px;flex-shrink:0;
+  animation:livePulse 1.6s infinite;
 }
-.hero-narrator-label::before{content:"●";font-size:8px}
-.hero-narrator-text{font-size:14.5px;color:var(--ink);line-height:1.65}
+.hero-narrator-text{font-size:14px;color:var(--ink);line-height:1.5}
 .hero-narrator-text em{color:var(--accent);font-style:normal;font-weight:600}
 .hero-narrator-text .v{font-family:var(--mono);background:#fff;padding:0 5px;border-radius:4px;border:1px solid #f3d4cb;font-size:12.5px}
 
@@ -516,25 +515,21 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
   <!-- HERO -->
   <section class="hero">
     <div>
-      <div class="hero-eyebrow">Live demo</div>
-      <h1>An autonomous DeFi swarm <em>that explains itself.</em></h1>
-      <p>
-        Three specialised agents — researcher, risk, executor — work together to scan markets, score risk on 0G&nbsp;Compute, and route swaps through Uniswap and KeeperHub. They talk peer-to-peer over Gensyn AXL, identify by ENS, and persist a verifiable audit trail on 0G&nbsp;Storage.
-      </p>
+      <div class="hero-eyebrow">Autonomous DeFi swarm</div>
+      <h1>Three agents. <em>One ledger.</em></h1>
 
       <div class="hero-narrator" id="narrator-card">
-        <div class="hero-narrator-label">What just happened</div>
         <div class="hero-narrator-text" id="narrator-text">
-          Hit <em>Run a cycle</em> below to start the swarm. I'll narrate every step in plain English as the agents work.
+          Idle — hit <em>Run a cycle</em> to start the swarm.
         </div>
       </div>
 
       <div class="sponsor-row">
-        <div class="sponsor-chip"><span class="dot" style="background:#10b981"></span><strong>0G</strong>·storage+compute</div>
-        <div class="sponsor-chip"><span class="dot" style="background:#ff007a"></span><strong>Uniswap</strong>·trading API</div>
-        <div class="sponsor-chip"><span class="dot" style="background:#22d3ee"></span><strong>KeeperHub</strong>·execution</div>
-        <div class="sponsor-chip"><span class="dot" style="background:#f59e0b"></span><strong>Gensyn</strong>·AXL P2P</div>
-        <div class="sponsor-chip"><span class="dot" style="background:#5298ff"></span><strong>ENS</strong>·identity</div>
+        <div class="sponsor-chip"><span class="dot" style="background:#10b981"></span><strong>0G</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#ff007a"></span><strong>Uniswap</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#22d3ee"></span><strong>KeeperHub</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#f59e0b"></span><strong>Gensyn AXL</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#5298ff"></span><strong>ENS</strong></div>
       </div>
     </div>
 
@@ -583,9 +578,8 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
           <span class="badge" id="b-researcher">idle</span>
         </div>
         <div class="agent-purpose">Market scanner</div>
-        <div class="agent-blurb">Watches the price of bluechip pairs on Base and writes the freshest signal to the swarm's shared memory.</div>
         <div class="row"><span class="row-k">Pair</span>      <span class="row-v" id="r-pair">—</span></div>
-        <div class="row"><span class="row-k">Live price</span><span class="row-v" id="r-price">—</span></div>
+        <div class="row"><span class="row-k">Price</span>     <span class="row-v" id="r-price">—</span></div>
         <div class="row"><span class="row-k">Strength</span>  <span class="row-v" id="r-strength">—</span></div>
       </div>
 
@@ -601,7 +595,6 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
           <span class="badge" id="b-risk">idle</span>
         </div>
         <div class="agent-purpose">AI risk scoring · 0G Compute</div>
-        <div class="agent-blurb">Reads each signal and asks an AI on 0G Compute to score it 0–10. Anything above the threshold is auto-rejected.</div>
 
         <div class="dial-wrap">
           <div class="dial">
@@ -631,7 +624,6 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
           <span class="badge" id="b-executor">idle</span>
         </div>
         <div class="agent-purpose">Uniswap → KeeperHub broadcast</div>
-        <div class="agent-blurb">Gets a swap quote from the Uniswap Trading API and submits it through KeeperHub for guaranteed delivery.</div>
         <div class="row"><span class="row-k">Routing</span>  <span class="row-v" id="e-route">—</span></div>
         <div class="row"><span class="row-k">Last tx</span>  <span class="row-v copyable" id="e-tx">—</span></div>
         <div class="row"><span class="row-k">Status</span>   <span class="row-v" id="e-status">—</span></div>
@@ -696,36 +688,12 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
     </div>
   </section>
 
-  <!-- STORY -->
-  <section class="section">
-    <div class="section-hdr">
-      <span class="section-num">04</span>
-      <span class="section-title">What just happened</span>
-      <span class="section-line"></span>
-    </div>
-
-    <div class="story">
-      <div class="story-head">
-        <div class="story-head-l">
-          <div class="story-icon">✦</div>
-          <div>
-            <div class="story-title">Plain-English summary</div>
-            <div class="story-sub">Generated live from the latest cycle</div>
-          </div>
-        </div>
-        <div class="story-step-count" id="story-count">—</div>
-      </div>
-      <div class="story-body" id="story-body">
-        <div class="story-empty">No cycles yet. Hit <strong>Run a cycle</strong> above to see the swarm in action.</div>
-      </div>
-    </div>
-  </section>
 
   <!-- TIMELINE -->
   <section class="section">
     <div class="section-hdr">
-      <span class="section-num">05</span>
-      <span class="section-title">Technical timeline</span>
+      <span class="section-num">04</span>
+      <span class="section-title">Event timeline</span>
       <span class="section-line"></span>
       <span class="section-meta" id="log-update">—</span>
     </div>
@@ -854,7 +822,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   loadPairs();
   poll();
-  setInterval(poll, 4000);
+  setInterval(poll, 1500);   // tight loop so live cycle progress feels instant
 });
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -968,91 +936,45 @@ function renderState(state) {
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
-   STORY (the plain-English narrator)
+   NARRATOR — one live line driven by in_progress + last result
    ─────────────────────────────────────────────────────────────────────────── */
-function renderStory(ctx) {
-  const body  = document.getElementById("story-body");
-  const count = document.getElementById("story-count");
+function renderNarrator(ctx, inProgress) {
+  const el = document.getElementById("narrator-text");
   const { sig, rk, ex, score, snap, version } = ctx;
 
+  // Live in-progress takes precedence
+  if (inProgress && inProgress.stage) {
+    const sg = inProgress.signal || {};
+    const inSym  = sg.token_in_sym  || "?";
+    const outSym = sg.token_out_sym || "?";
+    const stageMap = {
+      scanning:   `Scanning markets — looking at <em>${inSym} → ${outSym}</em>…`,
+      deciding:   `Risk agent scoring on 0G Compute…` + (inProgress.risk != null ? ` Got <span class="v">${Number(inProgress.risk).toFixed(1)}/10</span>.` : ""),
+      executing:  `Executing — Uniswap quote → KeeperHub broadcast…`,
+      committing: `Committing on-chain snapshot to 0G Storage…`,
+    };
+    el.innerHTML = stageMap[inProgress.stage] || "Working…";
+    return;
+  }
+
   if (!version) {
-    body.innerHTML = '<div class="story-empty">No cycles yet. Hit <strong>Run a cycle</strong> above to see the swarm in action.</div>';
-    count.textContent = "—";
-    document.getElementById("narrator-text").innerHTML = "Hit <em>Run a cycle</em> below to start the swarm. I'll narrate every step in plain English as the agents work.";
+    el.innerHTML = "Idle — hit <em>Run a cycle</em> to start the swarm.";
     return;
   }
 
   const inSym  = sig.token_in_sym  || "input";
   const outSym = sig.token_out_sym || "output";
-  const price  = sig.price_usd ? `$${Number(sig.price_usd).toFixed(2)}` : "an unknown price";
-  const strength = sig.signal || "medium";
+  const price  = sig.price_usd ? `$${Number(sig.price_usd).toFixed(2)}` : "—";
   const action = (rk.last_action || "hold").toLowerCase();
-  const conf   = rk.last_confidence != null ? Math.round(rk.last_confidence * 100) + "%" : "—";
   const tx     = ex.last_tx_hash;
 
-  // Step 1
-  const step1 = `
-    <div class="story-step success">
-      <div class="story-num">1</div>
-      <div class="story-text">
-        <strong>Researcher</strong> scanned <em>${inSym} → ${outSym}</em> on Base and saw a <em>${strength}</em> signal at <span class="v">${price}</span>.
-        It wrote the signal to 0G&nbsp;Storage so the rest of the swarm can read the same record.
-      </div>
-    </div>`;
-
-  // Step 2
-  let step2Class = "success", step2Text;
-  if (score == null) {
-    step2Class = "warning";
-    step2Text = `<strong>Risk agent</strong> hasn't returned a score yet — waiting on 0G&nbsp;Compute.`;
-  } else if (action === "hold") {
-    step2Class = "warning";
-    step2Text = `<strong>Risk agent</strong> scored the signal <span class="v">${score.toFixed(1)} / 10</span> on 0G&nbsp;Compute and chose to <em>HOLD</em>. Above the configured risk threshold — the swarm refuses to trade.`;
-  } else {
-    step2Text  = `<strong>Risk agent</strong> scored the signal <span class="v">${score.toFixed(1)} / 10</span> on 0G&nbsp;Compute. Confidence <span class="v">${conf}</span>. Approved an <em>${action.toUpperCase()}</em>.`;
-  }
-  const step2 = `<div class="story-step ${step2Class}"><div class="story-num">2</div><div class="story-text">${step2Text}</div></div>`;
-
-  // Step 3
-  let step3Class, step3Text;
   if (action === "hold") {
-    step3Class = "warning";
-    step3Text  = `<strong>Executor</strong> stood down — risk agent rejected the trade. No swap submitted.`;
+    el.innerHTML = `<em>HOLD</em> on ${inSym}→${outSym} · risk <span class="v">${score?.toFixed(1) || "?"}/10</span>`;
   } else if (tx) {
-    step3Class = "success";
-    step3Text  = `<strong>Executor</strong> got a quote from the Uniswap Trading API and submitted it through KeeperHub for guaranteed delivery. Tx <a class="ext" href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>.`;
+    el.innerHTML = `<em>${action.toUpperCase()}</em> ${inSym}→${outSym} @ <span class="v">${price}</span> · risk <span class="v">${score?.toFixed(1)}/10</span> · tx <a class="ext" href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>`;
   } else {
-    step3Class = "warning";
-    step3Text  = `<strong>Executor</strong> built the swap and handed it to KeeperHub. Settlement is queued — view it on <a class="ext" href="https://app.keeperhub.com" target="_blank">app.keeperhub.com</a>.`;
+    el.innerHTML = `<em>${action.toUpperCase()}</em> ${inSym}→${outSym} · queued at KeeperHub`;
   }
-  const step3 = `<div class="story-step ${step3Class}"><div class="story-num">3</div><div class="story-text">${step3Text}</div></div>`;
-
-  // Step 4
-  const step4 = snap ? `
-    <div class="story-step success">
-      <div class="story-num">4</div>
-      <div class="story-text">
-        <strong>0G&nbsp;Storage</strong> committed an on-chain snapshot of the entire swarm state — every signal, decision, and tx — as a verifiable proof.
-        Snapshot root <a class="ext" href="${explorerForSnapshot(snap)}" target="_blank">${SHORT(snap)}</a>.
-      </div>
-    </div>` : "";
-
-  body.innerHTML = step1 + step2 + step3 + step4;
-  count.textContent = `cycle #${version}`;
-
-  // Update the hero narrator one-liner
-  let oneLine;
-  if (action === "hold") {
-    oneLine = `Risk agent rejected this <em>${inSym}→${outSym}</em> signal at <span class="v">${score?.toFixed(1) || "?"}/10</span>. Standing down for safety.`;
-  } else if (tx) {
-    oneLine = `Bought <em>${outSym}</em> with <em>${inSym}</em> at <span class="v">${price}</span>. Risk <span class="v">${score?.toFixed(1)}/10</span>. Settled on-chain — tx <a class="ext" href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>.`;
-  } else {
-    oneLine = `Approved a <em>${(action||"trade").toUpperCase()}</em> on <em>${inSym}→${outSym}</em>. Submitted to KeeperHub — settlement queued.`;
-  }
-  document.getElementById("narrator-text").innerHTML = oneLine;
-
-  // Subtle reveal each new cycle
-  gsap.from("#story-body .story-step", { y: 6, opacity: 0, duration: .35, stagger: .07, ease: "power2.out" });
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -1123,7 +1045,7 @@ async function poll() {
     const log   = await lr.json();
     const scan  = await scn.json().catch(() => ({}));
     const ctx = renderState(state);
-    renderStory(ctx);
+    renderNarrator(ctx, state.in_progress);
     renderLog(log);
     renderScan(scan);
 

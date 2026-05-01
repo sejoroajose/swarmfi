@@ -93,10 +93,35 @@ async def _get_zg_state() -> dict:
             "last_routing": last.get("routing"),
         },
     }
+    in_progress = view.get("in_progress")
+    if isinstance(in_progress, dict):
+        stage = in_progress.get("stage")
+        sig   = in_progress.get("signal", {})
+        if stage in ("scanning", "deciding", "executing", "committing"):
+            agents["researcher"]["last_signal"] = sig or agents["researcher"]["last_signal"]
+        if stage == "scanning":
+            agents["researcher"]["status"] = "SCANNING"
+        elif stage == "deciding":
+            agents["researcher"]["status"] = "IDLE"
+            agents["risk"]["status"]       = "DECIDING"
+            if in_progress.get("risk") is not None:
+                agents["risk"]["last_risk_score"] = in_progress["risk"]
+                agents["risk"]["last_action"]     = in_progress.get("action")
+                agents["risk"]["last_confidence"] = in_progress.get("confidence")
+        elif stage == "executing":
+            agents["risk"]["last_risk_score"] = in_progress.get("risk")
+            agents["risk"]["last_action"]     = in_progress.get("action")
+            agents["executor"]["status"]      = "EXECUTING"
+        elif stage == "committing":
+            agents["executor"]["status"]      = "EXECUTING"
+            if in_progress.get("tx"):
+                agents["executor"]["last_tx_hash"] = in_progress["tx"]
+
     return {
         "version":       view.get("cycles", 0),
         "updated_at":    view.get("updated_at"),
         "snapshot_root": view.get("snapshot_root"),
+        "in_progress":   in_progress,
         "agents":        agents,
     }
 
@@ -510,9 +535,27 @@ def _publish_state_view(snapshot_root: str | None, result: dict) -> None:
             "cycles":        len(results),
             "results":       results[-20:],
             "pair":          result.get("signal") or view.get("pair") or {},
+            "in_progress":   None,
         }
         _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         _STATE_FILE.write_text(json.dumps(out, indent=2))
+    except Exception:
+        pass
+
+
+def _publish_partial(stage: str, partial: dict) -> None:
+    """
+    Stream a step-level update to the sidecar so the dashboard reflects
+    progress LIVE during a cycle. `stage` is one of:
+      'scanning' | 'deciding' | 'executing' | 'committing'
+    """
+    try:
+        from datetime import datetime, timezone
+        view = _read_state_file() or {}
+        view["updated_at"]  = datetime.now(tz=timezone.utc).isoformat()
+        view["in_progress"] = {"stage": stage, **partial}
+        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _STATE_FILE.write_text(json.dumps(view, indent=2))
     except Exception:
         pass
 
@@ -547,9 +590,13 @@ async def _run_trade_cycle(signal: dict) -> None:
         async with zg, compute, uniswap, kh:
             memories = make_shared_memory_set(["researcher", "risk", "executor"], zg)
 
+            # ── Researcher ──────────────────────────────────────────────────
+            _publish_partial("scanning", {"signal": signal})
             await memories["researcher"].update_status(AgentStatus.SCANNING, last_signal=signal)
             await memories["researcher"].log_event(LogEventType.MARKET_SIGNAL, data=signal)
 
+            # ── Risk ────────────────────────────────────────────────────────
+            _publish_partial("deciding", {"signal": signal})
             await memories["risk"].update_status(AgentStatus.DECIDING)
             scorer   = RiskScorer(compute)
             decision = await scorer.score(signal=signal, sender_pubkey="0"*64, our_pubkey="0"*64)
@@ -563,10 +610,20 @@ async def _run_trade_cycle(signal: dict) -> None:
             result_view["confidence"] = payload.get("confidence")
             result_view["reasoning"]  = payload.get("reasoning")
 
+            _publish_partial("deciding", {
+                "signal": signal, "risk": payload.get("risk_score"),
+                "action": payload.get("action"), "confidence": payload.get("confidence"),
+            })
+
             if payload.get("action") == "hold":
                 await memories["executor"].log_event(LogEventType.TRADE_FAILED,
                     data={"action": "HOLD", "reason": payload.get("rejection_reason")})
             else:
+                # ── Executor ──────────────────────────────────────────────────
+                _publish_partial("executing", {
+                    "signal": signal, "risk": payload.get("risk_score"),
+                    "action": payload.get("action"),
+                })
                 await memories["executor"].update_status(AgentStatus.EXECUTING)
                 executor = KeeperHubSwapExecutor(uniswap=uniswap, keeperhub=kh, wallet_address=wallet, zg_client=zg)
                 result   = await executor.execute_swap(
@@ -587,6 +644,11 @@ async def _run_trade_cycle(signal: dict) -> None:
                     result_view["error"] = result.error
 
             # Commit the buffered swarm state to 0G in ONE on-chain tx
+            _publish_partial("committing", {
+                "signal": signal, "risk": result_view.get("risk"),
+                "action": result_view.get("action"),
+                "tx":     result_view.get("tx"),
+            })
             snapshot_root: str | None = None
             try:
                 snapshot_root = await asyncio.wait_for(zg.flush(), timeout=240)

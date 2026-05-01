@@ -49,7 +49,8 @@ class TestExecuteTransfer:
         )
         async with client:
             result = await client.execute_transfer(req)
-        assert result.execution_id.startswith("exec_")
+        # Mock now mirrors KH's real /api/execute/transfer response shape.
+        assert result.execution_id and result.execution_id.startswith("direct_")
 
     @pytest.mark.asyncio
     async def test_records_call(self, client):
@@ -80,7 +81,8 @@ class TestExecuteContractCall:
     async def test_returns_execution_id(self, client):
         async with client:
             result = await client.execute_contract_call(self._req())
-        assert result.execution_id.startswith("exec_")
+        # Mock mirrors KH's real /api/execute/contract-call response shape.
+        assert result.execution_id and result.execution_id.startswith("direct_")
 
     @pytest.mark.asyncio
     async def test_records_call(self, client):
@@ -226,7 +228,8 @@ class TestCreateWorkflow:
         req = KHCreateWorkflowRequest(name="Test Workflow")
         async with client:
             workflow = await client.create_workflow(req)
-        assert workflow.workflow_id.startswith("wf_")
+        # KH returns raw IDs (no `wf_` prefix) — just assert non-empty.
+        assert workflow.workflow_id
         assert workflow.name == "Test Workflow"
 
     @pytest.mark.asyncio

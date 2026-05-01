@@ -101,8 +101,8 @@ class TestKeeperHubSwapExecutorSuccess:
         assert len(uniswap.mock.quote_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_uniswap_swap_called_once_for_classic(self, executor, uniswap, keeperhub):
-        """Mock returns CLASSIC routing → /swap called, not /order."""
+    async def test_uniswap_swap_not_called_in_path_b(self, executor, uniswap, keeperhub):
+        """Path B uses Uniswap as price oracle only — /swap is no longer called."""
         async with uniswap, keeperhub:
             await executor.execute_swap(
                 token_in=BaseAddresses.NATIVE_ETH,
@@ -110,12 +110,12 @@ class TestKeeperHubSwapExecutorSuccess:
                 amount_in_wei="1000000000000000000",
                 chain_id=CHAIN,
             )
-        assert len(uniswap.mock.swap_calls) == 1
+        assert len(uniswap.mock.swap_calls)  == 0
         assert len(uniswap.mock.order_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_keeperhub_contract_call_submitted(self, executor, uniswap, keeperhub):
-        """Verify KeeperHub receives the contract call."""
+    async def test_keeperhub_transfer_submitted(self, executor, uniswap, keeperhub):
+        """Path B routes the on-chain commitment through /api/execute/transfer."""
         async with uniswap, keeperhub:
             await executor.execute_swap(
                 token_in=BaseAddresses.NATIVE_ETH,
@@ -123,33 +123,22 @@ class TestKeeperHubSwapExecutorSuccess:
                 amount_in_wei="1000000000000000000",
                 chain_id=CHAIN,
             )
-        assert len(keeperhub.mock.contract_call_calls) == 1
+        assert len(keeperhub.mock.transfer_calls)      == 1
+        assert len(keeperhub.mock.contract_call_calls) == 0
 
     @pytest.mark.asyncio
-    async def test_keeperhub_call_has_correct_network(self, executor, uniswap, keeperhub):
+    async def test_keeperhub_transfer_uses_commitment_network(self, executor, uniswap, keeperhub):
+        """Commitment defaults to Sepolia (Turnkey-supported) regardless of quote chain."""
         async with uniswap, keeperhub:
             await executor.execute_swap(
                 token_in=BaseAddresses.NATIVE_ETH,
                 token_out=BaseAddresses.USDC,
                 amount_in_wei="1000000000000000000",
-                chain_id=CHAIN,  # Base = 8453
+                chain_id=CHAIN,  # Quote chain = Base
             )
-        call = keeperhub.mock.contract_call_calls[0]
-        assert call["network"] == "base"
-
-    @pytest.mark.asyncio
-    async def test_keeperhub_call_has_calldata(self, executor, uniswap, keeperhub):
-        """The raw calldata from Uniswap must be passed to KeeperHub."""
-        async with uniswap, keeperhub:
-            await executor.execute_swap(
-                token_in=BaseAddresses.NATIVE_ETH,
-                token_out=BaseAddresses.USDC,
-                amount_in_wei="1000000000000000000",
-                chain_id=CHAIN,
-            )
-        call = keeperhub.mock.contract_call_calls[0]
-        # Calldata should be non-empty hex
-        assert call.get("calldata") or True  # calldata present (may be in raw call)
+        call = keeperhub.mock.transfer_calls[0]
+        assert call["network"] == "sepolia"
+        assert call["recipientAddress"].lower() == WALLET.lower()
 
     @pytest.mark.asyncio
     async def test_result_succeeded_true(self, executor, uniswap, keeperhub):

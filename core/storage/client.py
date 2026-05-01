@@ -116,6 +116,86 @@ class _InMemoryStore:
         self._store.clear()
 
 
+# ── Buffered store: instant in-memory writes, one on-chain flush ──────────────
+
+class _BufferedStore:
+    """
+    Write-back cache in front of the live 0G sidecar client.
+
+    Why this exists
+    ---------------
+    Every call to the live sidecar submits a flow tx and waits for storage-node
+    sync (60–90 s per upload). A single demo cycle hits 12+ uploads — minutes
+    of wall clock and many timeouts.
+
+    Buffered mode:
+      - upload() stores bytes in memory keyed by SHA-256 (instant, no network)
+      - download() reads from memory (or falls through to live if missing)
+      - flush() bundles every buffered byte into ONE on-chain upload and
+        returns the resulting 0G root hash — the snapshot proof judges see.
+    """
+
+    def __init__(self, live_backend: "_ZeroGStorageClient") -> None:
+        self._live: _ZeroGStorageClient = live_backend
+        self._mem: dict[str, bytes]     = {}
+        self._snapshot_root: str | None = None
+        self._snapshot_tx:   str | None = None  # flow tx that registered the snapshot
+
+    async def upload(self, data: bytes) -> UploadResult:
+        root = hashlib.sha256(data).hexdigest()
+        self._mem[root] = data
+        log.debug("buffered upload", root=root[:16] + "…", bytes=len(data))
+        return UploadResult(root_hash=root, size_bytes=len(data))
+
+    async def download(self, root_hash: str) -> bytes:
+        key = root_hash.removeprefix("0x")
+        if key in self._mem:
+            return self._mem[key]
+        if root_hash in self._mem:
+            return self._mem[root_hash]
+        # Fall through to live (e.g. loading a previous snapshot)
+        return await self._live.download(root_hash)
+
+    async def flush(self) -> str | None:
+        """
+        Commit the buffered state to 0G as ONE on-chain upload.
+        Returns the 0G root hash of the snapshot, or None if nothing buffered.
+        """
+        if not self._mem:
+            return None
+        from datetime import datetime, timezone
+        snapshot = {
+            "version":   1,
+            "ts":        datetime.now(tz=timezone.utc).isoformat(),
+            "entry_count": len(self._mem),
+            "data":      {root: data.hex() for root, data in self._mem.items()},
+        }
+        raw = json.dumps(snapshot, sort_keys=True).encode("utf-8")
+        result = await self._live.upload(raw)
+        self._snapshot_root = result.root_hash
+        self._snapshot_tx   = result.tx_hash
+        log.info(
+            "0G snapshot committed",
+            root=result.root_hash[:18] + "…",
+            tx=(result.tx_hash[:14] + "…") if result.tx_hash else "(deferred)",
+            entries=len(self._mem),
+            bytes=len(raw),
+        )
+        return result.root_hash
+
+    @property
+    def snapshot_root(self) -> str | None:
+        return self._snapshot_root
+
+    @property
+    def snapshot_tx(self) -> str | None:
+        return self._snapshot_tx
+
+    @property
+    def buffered_entry_count(self) -> int:
+        return len(self._mem)
+
+
 # ── Live 0G client (delegates to Node.js sidecar) ────────────────────────────
 
 class _ZeroGStorageClient:
@@ -167,9 +247,9 @@ class _ZeroGStorageClient:
             cmd,
             input=stdin,
             capture_output=True,
-            timeout=600,
+            timeout=1800,
             cwd=str(self._sidecar.parent),
-            text=False,                    # Keep as bytes (safer for binary download)
+            text=False,                    
         )
         if result.returncode != 0:
             stderr = result.stderr.decode(errors="replace").strip()
@@ -231,26 +311,77 @@ class ZeroGClient:
     never legitimately ends in \\x00.
     """
 
-    def __init__(self, backend: _ZeroGStorageClient | _InMemoryStore) -> None:
+    def __init__(self, backend: _ZeroGStorageClient | _InMemoryStore | _BufferedStore) -> None:
         self._backend = backend
-        self._is_live = isinstance(backend, _ZeroGStorageClient)
+        self._is_live = isinstance(backend, (_ZeroGStorageClient, _BufferedStore))
+        self._is_buffered = isinstance(backend, _BufferedStore)
 
     @classmethod
-    def from_env(cls) -> "ZeroGClient":
+    def from_env(cls, buffered: bool | None = None) -> "ZeroGClient":
+        """
+        buffered:
+          True  → live + write-back cache (one tx at flush() — recommended for
+                  demos and any flow with many small writes)
+          False → live, every upload submits a tx synchronously
+          None  → reads SWARMFI_BUFFERED env (default: True if live)
+        """
         pk = os.getenv("ZG_PRIVATE_KEY", "").strip()
-        if pk:
-            log.info("0G client: live testnet mode (Node.js sidecar)")
-            return cls(_ZeroGStorageClient(
-                private_key=pk,
-                evm_rpc=os.getenv("ZG_EVM_RPC", ZG_EVM_RPC),
-                indexer_rpc=os.getenv("ZG_INDEXER_RPC", ZG_INDEXER_RPC),
-            ))
-        log.info("0G client: offline/in-memory mode (set ZG_PRIVATE_KEY for testnet)")
-        return cls(_InMemoryStore())
+        if not pk:
+            log.info("0G client: offline/in-memory mode (set ZG_PRIVATE_KEY for testnet)")
+            return cls(_InMemoryStore())
+
+        if buffered is None:
+            buffered = os.getenv("SWARMFI_BUFFERED", "1").strip() not in ("0", "false", "False", "")
+
+        live = _ZeroGStorageClient(
+            private_key=pk,
+            evm_rpc=os.getenv("ZG_EVM_RPC", ZG_EVM_RPC),
+            indexer_rpc=os.getenv("ZG_INDEXER_RPC", ZG_INDEXER_RPC),
+        )
+        if buffered:
+            log.info("0G client: live testnet mode (buffered — flush at end)")
+            return cls(_BufferedStore(live))
+        log.info("0G client: live testnet mode (Node.js sidecar, every-write tx)")
+        return cls(live)
 
     @property
     def is_live(self) -> bool:
         return self._is_live
+
+    @property
+    def is_buffered(self) -> bool:
+        return self._is_buffered
+
+    async def flush(self) -> str | None:
+        """
+        In buffered mode: commit all in-memory writes to 0G as ONE upload and
+        return the snapshot root hash. In any other mode: no-op, returns None.
+        """
+        if isinstance(self._backend, _BufferedStore):
+            return await self._backend.flush()
+        return None
+
+    @property
+    def snapshot_root(self) -> str | None:
+        if isinstance(self._backend, _BufferedStore):
+            return self._backend.snapshot_root
+        return None
+
+    @property
+    def snapshot_tx(self) -> str | None:
+        """The flow tx hash that registered the snapshot on-chain.
+        This is the value chainscan-galileo can resolve; the root hash
+        is a storage-layer Merkle root that chainscan can't render.
+        Returns None if the snapshot used the timeout-fallback path."""
+        if isinstance(self._backend, _BufferedStore):
+            return self._backend.snapshot_tx
+        return None
+
+    @property
+    def buffered_entry_count(self) -> int:
+        if isinstance(self._backend, _BufferedStore):
+            return self._backend.buffered_entry_count
+        return 0
 
     async def __aenter__(self) -> "ZeroGClient":
         return self

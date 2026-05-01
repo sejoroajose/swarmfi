@@ -117,9 +117,21 @@ class _LiveUniswapClient:
         self._http = httpx.AsyncClient(
             base_url=UNISWAP_API_BASE,
             headers={
-                "x-api-key":    self._api_key,
-                "Content-Type": "application/json",
-                "Accept":       "application/json",
+                "x-api-key":                 self._api_key,
+                "Content-Type":              "application/json",
+                "Accept":                    "application/json",
+                # Required for the Trading API to return calldata that targets
+                # the v2 Universal Router deployed on Base. Without this header
+                # the API may emit calldata for an older UR layout that reverts
+                # on the live contract.
+                "x-universal-router-version": "2.0",
+                # Disable Permit2: KeeperHub's keeper wallet doesn't sign
+                # Permit2 messages, so any Permit2-gated calldata reverts on-
+                # chain with a custom error (we observed 0x6a12f104). For ETH
+                # input this is required; for ERC20 inputs the keeper would
+                # need a standard ERC20 approval to the Universal Router instead.
+                "x-permit2-disabled":         "true",
+                "x-erc20eth-enabled":         "false",
             },
             timeout=httpx.Timeout(_REQUEST_TIMEOUT),
         )

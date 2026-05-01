@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>SwarmFi · Autonomous DeFi Swarm</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+<style>
+:root{
+  /* ── Warm fintech palette — deliberately not crypto-dark ─────────── */
+  --bg:        #faf7f2;   /* soft cream */
+  --surface:   #ffffff;
+  --surface-2: #fdfaf4;   /* warmer card */
+  --ink:       #14171f;   /* deep almost-black */
+  --ink-2:     #2c3140;
+  --muted:     #6b7280;
+  --faint:     #a0a4b0;
+  --line:      #ebe6dc;   /* warm hairline */
+  --line-strong: #d9d2c3;
+
+  /* ONE signature accent — sunset coral. Used sparingly. */
+  --accent:    #e85a3e;
+  --accent-soft: #fbeae5;
+
+  /* Status palette */
+  --green:     #2d8a5b;
+  --green-soft:#e7f3ec;
+  --amber:     #c47a1f;
+  --amber-soft:#fbf0dc;
+  --rose:      #c43a4a;
+  --rose-soft: #fbe5e8;
+  --indigo:    #3a4ec0;
+  --indigo-soft:#eaedf9;
+
+  /* Typography */
+  --serif: 'Fraunces', Georgia, serif;
+  --sans:  'Inter', system-ui, sans-serif;
+  --mono:  'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  --shadow-sm: 0 1px 2px rgba(20,23,31,.04), 0 1px 1px rgba(20,23,31,.03);
+  --shadow:    0 1px 0 rgba(0,0,0,.02), 0 8px 24px -8px rgba(20,23,31,.08), 0 2px 6px -2px rgba(20,23,31,.04);
+  --shadow-lg: 0 24px 48px -16px rgba(20,23,31,.12), 0 8px 20px -8px rgba(20,23,31,.06);
+
+  --radius:    14px;
+  --radius-sm: 10px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:14px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings: "ss01", "cv11";
+}
+.bg-noise{
+  position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(60% 30% at 80% -10%, rgba(232,90,62,.05), transparent 60%),
+    radial-gradient(50% 30% at 0% 100%, rgba(58,78,192,.04), transparent 60%);
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+header{
+  position:sticky;top:0;z-index:50;
+  background:rgba(250,247,242,.85);
+  backdrop-filter:saturate(140%) blur(10px);
+  -webkit-backdrop-filter:saturate(140%) blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.hdr-inner{
+  max-width:1280px;margin:0 auto;
+  padding:14px 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;
+}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;color:inherit}
+.brand-mark{
+  width:30px;height:30px;border-radius:8px;
+  background:linear-gradient(135deg, var(--accent) 0%, #f5b58c 100%);
+  position:relative;box-shadow:0 6px 16px -6px rgba(232,90,62,.5);
+}
+.brand-mark::after{
+  content:"";position:absolute;inset:5px 5px 5px 12px;border-radius:50%;
+  background:#fff;
+}
+.brand-text{font-family:var(--serif);font-weight:600;letter-spacing:-.5px;font-size:20px}
+.brand-text em{font-style:italic;color:var(--accent)}
+.brand-tag{display:none}
+@media(min-width:720px){
+  .brand-tag{display:block;font-size:11px;color:var(--muted);margin-top:1px;letter-spacing:.2px}
+}
+
+.hdr-right{display:flex;align-items:center;gap:10px}
+.live-pill{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--green-soft);color:var(--green);
+  border:1px solid #c7e4d2;
+  padding:5px 11px;border-radius:99px;font-size:11.5px;font-weight:600;
+}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(45,138,91,.4);animation:livePulse 2s infinite}
+@keyframes livePulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(45,138,91,.5)}
+  50%{box-shadow:0 0 0 6px rgba(45,138,91,0)}
+}
+.snapshot-pill{
+  display:none;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:11px;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);
+  padding:5px 11px;border-radius:99px;text-decoration:none;
+  transition:border-color .15s, transform .15s;
+}
+.snapshot-pill:hover{border-color:var(--accent);transform:translateY(-1px)}
+.snapshot-pill .dim{color:var(--muted)}
+
+/* ── Tabs ───────────────────────────────────────────────────────── */
+.tabs{
+  max-width:1280px;margin:0 auto;
+  display:flex;gap:2px;padding:0 28px;
+  border-bottom:1px solid var(--line);
+}
+.tab{
+  padding:12px 16px;cursor:pointer;font-size:13px;font-weight:500;color:var(--muted);
+  border-bottom:2px solid transparent;background:none;border-top:none;border-left:none;border-right:none;
+  font-family:inherit;transition:color .15s, border-color .15s;
+}
+.tab:hover{color:var(--ink)}
+.tab.active{color:var(--ink);border-bottom-color:var(--accent);font-weight:600}
+
+/* ── Pane ───────────────────────────────────────────────────────── */
+.pane{display:none;max-width:1280px;margin:0 auto;padding:32px 28px 80px}
+.pane.active{display:block}
+
+/* ── Hero (warmer, calmer than v1) ──────────────────────────────── */
+.hero{
+  position:relative;
+  display:grid;grid-template-columns:1.4fr 1fr;gap:32px;
+  background:var(--surface);border:1px solid var(--line);
+  border-radius:18px;padding:32px;
+  box-shadow:var(--shadow);
+}
+@media(max-width:880px){.hero{grid-template-columns:1fr;padding:24px}}
+.hero-eyebrow{
+  display:inline-flex;align-items:center;gap:7px;
+  font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:14px;
+}
+.hero-eyebrow::before{content:"";width:18px;height:1.5px;background:var(--accent);border-radius:2px}
+.hero h1{
+  font-family:var(--serif);font-weight:600;
+  font-size:clamp(28px, 4.2vw, 42px);line-height:1.05;letter-spacing:-1.4px;
+  margin-bottom:14px;color:var(--ink);
+}
+.hero h1 em{font-style:italic;color:var(--accent);font-weight:500}
+.hero p{
+  color:var(--ink-2);max-width:54ch;font-size:15px;line-height:1.65;
+}
+.hero-narrator{
+  background:var(--accent-soft);border:1px solid #f3d4cb;
+  border-radius:var(--radius);padding:14px 18px;margin-top:18px;
+  display:flex;align-items:center;gap:10px;
+}
+.hero-narrator::before{
+  content:"●";color:var(--accent);font-size:10px;flex-shrink:0;
+  animation:livePulse 1.6s infinite;
+}
+.hero-narrator-text{font-size:14px;color:var(--ink);line-height:1.5}
+.hero-narrator-text em{color:var(--accent);font-style:normal;font-weight:600}
+.hero-narrator-text .v{font-family:var(--mono);background:#fff;padding:0 5px;border-radius:4px;border:1px solid #f3d4cb;font-size:12.5px}
+
+.hero-stats{
+  display:flex;flex-direction:column;gap:1px;
+  background:var(--line);border-radius:var(--radius);overflow:hidden;
+  border:1px solid var(--line);
+}
+.stat{
+  background:var(--surface-2);padding:14px 18px;
+  display:flex;justify-content:space-between;align-items:center;gap:14px;
+}
+.stat-k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:500}
+.stat-v{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--ink)}
+.stat-v.green{color:var(--green)}
+.stat-v.coral{color:var(--accent)}
+.stat-v a{color:inherit;text-decoration:none;border-bottom:1px dashed var(--line-strong)}
+.stat-v a:hover{border-color:var(--accent)}
+
+.sponsor-row{
+  display:flex;flex-wrap:wrap;gap:6px;margin-top:22px;
+  padding-top:22px;border-top:1px solid var(--line);
+}
+.sponsor-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11.5px;color:var(--muted);
+  padding:5px 10px;border:1px solid var(--line);border-radius:99px;
+  background:var(--surface);font-weight:500;
+}
+.sponsor-chip strong{color:var(--ink);font-weight:600}
+.sponsor-chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+
+/* ── Section ─────────────────────────────────────────────────────── */
+.section{margin-top:44px}
+.section-hdr{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.section-num{
+  font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.4px;font-weight:500;
+  background:var(--surface);border:1px solid var(--line);padding:2px 8px;border-radius:6px;
+}
+.section-title{
+  font-family:var(--serif);font-weight:600;font-size:22px;letter-spacing:-.6px;color:var(--ink);
+}
+.section-line{flex:1;height:1px;background:var(--line)}
+.section-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* ── Agent cards ────────────────────────────────────────────────── */
+.agent-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:920px){.agent-grid{grid-template-columns:1fr}}
+
+.agent-card{
+  position:relative;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:20px;transition:border-color .2s, transform .2s, box-shadow .2s;
+}
+.agent-card:hover{border-color:var(--line-strong);transform:translateY(-1px);box-shadow:var(--shadow)}
+.agent-card[data-active="true"]{
+  border-color:var(--card-color, var(--accent));
+  box-shadow:0 0 0 3px rgba(232,90,62,.06);
+}
+.agent-card[data-role="researcher"]{--card-color:var(--indigo);--card-soft:var(--indigo-soft)}
+.agent-card[data-role="risk"]{--card-color:var(--accent);--card-soft:var(--accent-soft)}
+.agent-card[data-role="executor"]{--card-color:var(--green);--card-soft:var(--green-soft)}
+
+.agent-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:14px}
+.agent-id{display:flex;align-items:center;gap:11px}
+.agent-icon{
+  width:36px;height:36px;border-radius:9px;flex-shrink:0;
+  background:var(--card-soft);border:1px solid var(--card-color);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--serif);font-weight:600;font-size:16px;color:var(--card-color);
+}
+.agent-name{font-family:var(--serif);font-size:17px;font-weight:600;letter-spacing:-.3px;color:var(--ink)}
+.agent-ens{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:1px}
+
+.badge{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.6px;font-weight:600;
+  padding:4px 9px;border-radius:99px;text-transform:uppercase;
+  background:var(--surface-2);color:var(--muted);border:1px solid var(--line);
+  flex-shrink:0;
+}
+.badge-active{background:var(--card-color);color:#fff;border-color:transparent;animation:pulse 1.5s infinite}
+@keyframes pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(232,90,62,.4)}
+  50%{box-shadow:0 0 0 5px transparent}
+}
+
+.agent-purpose{font-size:11.5px;color:var(--muted);margin-bottom:6px;font-weight:500}
+.agent-blurb{font-size:13.5px;color:var(--ink-2);line-height:1.55;margin-bottom:16px;min-height:42px}
+
+/* tooltip helper */
+.tip{position:relative;cursor:help;border-bottom:1px dotted var(--line-strong)}
+.tip::after{
+  content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;
+  transform:translate(-50%, 4px);
+  background:var(--ink);color:#fff;font-size:11px;padding:6px 9px;border-radius:6px;
+  white-space:nowrap;max-width:240px;opacity:0;pointer-events:none;
+  transition:opacity .15s, transform .15s;font-weight:500;
+  font-family:var(--sans);letter-spacing:0;
+}
+.tip:hover::after{opacity:1;transform:translate(-50%, 0)}
+
+.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:none}
+.row-k{font-size:12px;color:var(--muted);font-weight:500}
+.row-v{font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:500}
+
+/* Risk dial */
+.dial-wrap{display:flex;align-items:center;justify-content:center;margin:6px 0 14px}
+.dial{position:relative;width:120px;height:120px}
+.dial svg{width:100%;height:100%;transform:rotate(-90deg)}
+.dial-bg{fill:none;stroke:var(--line);stroke-width:7}
+.dial-fg{fill:none;stroke:var(--card-color);stroke-width:7;stroke-linecap:round;
+  stroke-dasharray:0 100;transition:stroke-dasharray .8s cubic-bezier(.2,.7,.2,1), stroke .3s}
+.dial-text{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.dial-num{font-family:var(--serif);font-size:28px;font-weight:600;letter-spacing:-.5px}
+.dial-lbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:1px}
+.dial-band{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:8px}
+.dial-band.low{color:var(--green)}
+.dial-band.mid{color:var(--amber)}
+.dial-band.high{color:var(--rose)}
+
+/* ── Cycle panel ────────────────────────────────────────────────── */
+.panel{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:22px;box-shadow:var(--shadow-sm);
+}
+.panel-intro{font-size:13.5px;color:var(--muted);margin-bottom:18px;line-height:1.55}
+
+.fire-grid{display:grid;grid-template-columns:repeat(4, 1fr);gap:14px;align-items:end}
+@media(max-width:880px){.fire-grid{grid-template-columns:1fr 1fr}}
+.field{display:flex;flex-direction:column;gap:6px}
+.field-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.field-help{font-size:11px;color:var(--faint);margin-top:2px}
+
+.input,.select{
+  background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);
+  border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;
+  transition:border-color .15s, box-shadow .15s;
+}
+.input:focus,.select:focus{
+  outline:none;border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(232,90,62,.12);
+}
+
+.btn{
+  border:1px solid var(--line-strong);background:var(--surface);color:var(--ink);
+  padding:10px 18px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;
+  transition:all .15s ease;display:inline-flex;align-items:center;gap:7px;
+  font-family:inherit;
+}
+.btn:hover{background:var(--surface-2);border-color:var(--accent);color:var(--accent)}
+.btn-primary{
+  background:var(--ink);color:#fff;border-color:var(--ink);
+}
+.btn-primary:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-success{
+  background:var(--green);color:#fff;border-color:var(--green);
+}
+.btn-success:hover{background:#256e49;border-color:#256e49;color:#fff}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.fire-status{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:14px;min-height:18px}
+
+/* ── Story panel (the plain-English narrator) ──────────────────── */
+.story{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:0;overflow:hidden;
+}
+.story-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 22px;border-bottom:1px solid var(--line);
+  background:var(--surface-2);
+}
+.story-head-l{display:flex;align-items:center;gap:10px}
+.story-icon{
+  width:30px;height:30px;border-radius:8px;
+  background:var(--accent-soft);border:1px solid #f3d4cb;
+  display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:14px;
+}
+.story-title{font-family:var(--serif);font-size:16px;font-weight:600;letter-spacing:-.3px}
+.story-sub{font-size:11.5px;color:var(--muted);margin-top:1px}
+.story-step-count{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+.story-body{padding:8px 0}
+.story-step{display:grid;grid-template-columns:48px 1fr;gap:14px;padding:14px 22px;align-items:flex-start;position:relative}
+.story-step:not(:last-child)::before{
+  content:"";position:absolute;left:42px;top:36px;bottom:-8px;width:1px;background:var(--line);
+}
+.story-num{
+  width:26px;height:26px;border-radius:50%;
+  background:var(--accent-soft);color:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11.5px;font-weight:700;flex-shrink:0;
+}
+.story-step.success .story-num{background:var(--green-soft);color:var(--green)}
+.story-step.warning .story-num{background:var(--amber-soft);color:var(--amber)}
+.story-step.fail    .story-num{background:var(--rose-soft);color:var(--rose)}
+.story-text{font-size:14px;color:var(--ink);line-height:1.6}
+.story-text strong{color:var(--ink);font-weight:600}
+.story-text em{font-style:normal;color:var(--accent);font-weight:600}
+.story-text .v{font-family:var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:12px;color:var(--ink);border:1px solid var(--line)}
+.story-text .ext{color:var(--accent);text-decoration:none;border-bottom:1px solid currentColor}
+.story-empty{padding:32px;text-align:center;color:var(--muted);font-size:14px}
+
+/* ── Auto-cycle toggle ──────────────────────────────────────────── */
+.auto-toggle{
+  display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);
+  cursor:pointer;user-select:none;
+}
+.auto-toggle input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+.auto-toggle:hover{color:var(--ink)}
+
+/* ── Edge scan table ────────────────────────────────────────────── */
+.scan-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.scan-tbl thead th{
+  background:var(--surface-2);text-align:left;padding:11px 16px;
+  font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+.scan-tbl tbody td{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.scan-tbl tbody tr:last-child td{border-bottom:none}
+.scan-tbl tbody tr.best{background:linear-gradient(90deg, rgba(232,90,62,.06), transparent 60%)}
+.scan-tbl tbody tr.best td:first-child::before{content:"★";color:var(--accent);margin-right:6px;font-size:14px}
+.scan-tbl .num{text-align:right}
+.scan-tbl .num.up{color:var(--green)}
+.scan-tbl .num.down{color:var(--rose)}
+.scan-tbl .composite-bar{display:flex;align-items:center;gap:10px}
+.scan-tbl .bar{flex:1;height:6px;background:var(--line);border-radius:99px;overflow:hidden;min-width:60px;max-width:120px}
+.scan-tbl .bar-fill{height:100%;background:linear-gradient(90deg, var(--accent) 0%, #f5b58c 100%);border-radius:99px;transition:width .8s ease}
+.scan-tbl .signal-pill{font-size:10px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:3px 8px;border-radius:99px}
+.scan-tbl .signal-strong{background:var(--green-soft);color:var(--green)}
+.scan-tbl .signal-medium{background:var(--amber-soft);color:var(--amber)}
+.scan-tbl .signal-weak{background:var(--surface-2);color:var(--muted);border:1px solid var(--line)}
+
+/* ── ENS profile table ──────────────────────────────────────────── */
+.ens-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.ens-tbl thead th{
+  background:var(--surface-2);text-align:left;padding:11px 16px;
+  font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+.ens-tbl tbody td{padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--ink);vertical-align:top}
+.ens-tbl tbody tr:last-child td{border-bottom:none}
+.ens-name{font-family:var(--serif);font-size:14px;font-weight:600;color:var(--ink);font-style:normal}
+.ens-addr{color:var(--muted);font-size:10.5px;margin-top:2px}
+.ens-records{display:flex;flex-direction:column;gap:4px}
+.ens-rec{display:flex;gap:10px;align-items:baseline}
+.ens-rec-k{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px;min-width:78px}
+.ens-rec-v{color:var(--ink);font-size:11.5px;word-break:break-all}
+.ens-rec-v.empty{color:var(--faint);font-style:italic}
+
+/* ── AXL P2P table ──────────────────────────────────────────────── */
+.axl-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.axl-tbl thead th{
+  background:var(--surface-2);text-align:left;padding:11px 16px;
+  font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;
+  border-bottom:1px solid var(--line);
+}
+.axl-tbl tbody td{padding:11px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--ink)}
+.axl-tbl tbody tr:last-child td{border-bottom:none}
+.axl-flow{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.axl-flow .arrow{color:var(--accent);font-weight:700}
+.axl-mtype{
+  font-size:10px;letter-spacing:.4px;font-weight:700;text-transform:uppercase;
+  padding:3px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);
+}
+
+/* ── Timeline ───────────────────────────────────────────────────── */
+.timeline{display:flex;flex-direction:column;gap:6px}
+.tl-row{
+  display:grid;grid-template-columns:80px 130px 100px 1fr;gap:14px;align-items:center;
+  padding:10px 14px;border-radius:var(--radius-sm);
+  background:var(--surface);border:1px solid var(--line);font-size:13px;
+}
+.tl-time{font-family:var(--mono);color:var(--muted);font-size:11.5px}
+.tl-evt{
+  font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.4px;
+  padding:3px 8px;border-radius:6px;text-align:center;
+}
+.tl-evt.MARKET_SIGNAL  {background:var(--indigo-soft);color:var(--indigo)}
+.tl-evt.RISK_DECISION  {background:var(--accent-soft);color:var(--accent)}
+.tl-evt.TRADE_EXECUTED {background:var(--green-soft);color:var(--green)}
+.tl-evt.TRADE_FAILED   {background:var(--rose-soft);color:var(--rose)}
+.tl-evt.AGENT_STARTED  {background:var(--surface-2);color:var(--muted)}
+.tl-agent{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.tl-detail{font-family:var(--mono);font-size:11.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-empty{padding:32px;text-align:center;color:var(--muted);font-size:14px}
+
+/* ── Chat ───────────────────────────────────────────────────────── */
+.chat-wrap{display:grid;grid-template-columns:240px 1fr;gap:18px;height:calc(100vh - 220px);min-height:500px}
+@media(max-width:920px){.chat-wrap{grid-template-columns:1fr;height:auto}}
+.chat-side{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;
+}
+.chat-side-hd{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:600}
+.qbtn{
+  text-align:left;background:var(--surface-2);border:1px solid var(--line);
+  color:var(--ink);padding:9px 11px;border-radius:9px;font-size:12.5px;cursor:pointer;
+  transition:all .15s;line-height:1.4;font-family:inherit;
+}
+.qbtn:hover{border-color:var(--accent);color:var(--accent);transform:translateX(2px)}
+
+.chat-main{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.chat-msgs{flex:1;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:14px}
+.msg{max-width:85%;padding:11px 15px;border-radius:14px;font-size:14px;line-height:1.6}
+.msg-user{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:4px}
+.msg-ai{align-self:flex-start;background:var(--surface-2);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg-ai .msg-label{font-size:10.5px;color:var(--accent);font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin-bottom:5px}
+.msg-ai pre{background:var(--bg);padding:10px;border-radius:8px;font-family:var(--mono);font-size:11.5px;overflow-x:auto;margin:6px 0;border:1px solid var(--line)}
+.typing{display:inline-flex;gap:4px;padding:4px 0}
+.typing span{width:6px;height:6px;background:var(--accent);border-radius:50%;animation:typing 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.15s}
+.typing span:nth-child(3){animation-delay:.3s}
+@keyframes typing{0%,60%,100%{opacity:.3}30%{opacity:1;transform:translateY(-2px)}}
+
+.chat-input-row{display:flex;gap:10px;padding:12px;border-top:1px solid var(--line);background:var(--surface-2)}
+.chat-input{flex:1;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);
+  border-radius:10px;padding:10px 13px;font-size:14px;font-family:inherit;resize:none;max-height:140px}
+.chat-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(232,90,62,.12)}
+
+/* ── ENS ────────────────────────────────────────────────────────── */
+.ens-grid{display:grid;grid-template-columns:1.3fr 1fr 1fr auto;gap:12px;align-items:end}
+@media(max-width:880px){.ens-grid{grid-template-columns:1fr 1fr}}
+.ens-resolved{font-family:var(--mono);font-size:11px;margin-top:4px;height:14px;min-height:14px}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+footer{
+  max-width:1280px;margin:60px auto 32px;padding:18px 28px;
+  display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;
+  border-top:1px solid var(--line);
+}
+footer .gap-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+footer a{color:var(--muted);text-decoration:none;transition:color .15s}
+footer a:hover{color:var(--accent)}
+footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
+
+/* utility */
+.copyable{cursor:pointer;transition:color .15s}
+.copyable:hover{color:var(--accent)}
+
+/* scrollbar */
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(20,23,31,.12);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:rgba(20,23,31,.22)}
+</style>
+</head>
+<body>
+<div class="bg-noise"></div>
+
+<header>
+  <div class="hdr-inner">
+    <a href="#" class="brand">
+      <div class="brand-mark"></div>
+      <div>
+        <div class="brand-text">Swarm<em>Fi</em></div>
+        <div class="brand-tag">Autonomous DeFi · ETHGlobal OpenAgents</div>
+      </div>
+    </a>
+    <div class="hdr-right">
+      <a id="snapshot-pill" class="snapshot-pill" target="_blank" rel="noopener">
+        <span class="dim">0G snapshot</span><span id="snapshot-text">—</span>
+      </a>
+      <div class="live-pill"><span class="live-dot"></span><span id="live-txt">Live</span></div>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="monitor">Swarm Monitor</button>
+    <button class="tab"        data-tab="chat">Talk to Swarm</button>
+    <button class="tab"        data-tab="ens">ENS Transfer</button>
+  </div>
+</header>
+
+<!-- ════════════════════════════════════════════════════════════
+     PANE — MONITOR
+     ════════════════════════════════════════════════════════════ -->
+<div class="pane active" id="pane-monitor">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div>
+      <div class="hero-eyebrow">Autonomous DeFi swarm</div>
+      <h1>Three agents. <em>One ledger.</em></h1>
+
+      <div class="hero-narrator" id="narrator-card">
+        <div class="hero-narrator-text" id="narrator-text">
+          Idle — hit <em>Run a cycle</em> to start the swarm.
+        </div>
+      </div>
+
+      <div class="sponsor-row">
+        <div class="sponsor-chip"><span class="dot" style="background:#10b981"></span><strong>0G</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#ff007a"></span><strong>Uniswap</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#22d3ee"></span><strong>KeeperHub</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#f59e0b"></span><strong>Gensyn AXL</strong></div>
+        <div class="sponsor-chip"><span class="dot" style="background:#5298ff"></span><strong>ENS</strong></div>
+      </div>
+    </div>
+
+    <div class="hero-stats">
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Cycles run since the dashboard started">Cycles run</span>
+        <span class="stat-v" id="hs-cycle">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Cumulative ETH committed on-chain across all approved cycles">Committed</span>
+        <span class="stat-v coral" id="hs-pnl-committed">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Notional value of the swaps the swarm ranked at entry — i.e. the $ size of opportunities the swarm acted on, if commitments were full swaps.">Notional value</span>
+        <span class="stat-v green" id="hs-pnl-notional">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Latest decision from the risk agent">Last action</span>
+        <span class="stat-v" id="hs-action">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Latest swap commitment tx — click to view on Sepolia Etherscan">Last tx</span>
+        <span class="stat-v green" id="hs-tx">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Most recent 0G Storage snapshot — verifiable proof of every decision">0G snapshot</span>
+        <span class="stat-v" id="hs-snap">—</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- AGENT CARDS -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">01</span>
+      <span class="section-title">The agents</span>
+      <span class="section-line"></span>
+    </div>
+
+    <div class="agent-grid">
+      <div class="agent-card" data-role="researcher">
+        <div class="agent-hd">
+          <div class="agent-id">
+            <div class="agent-icon">R</div>
+            <div>
+              <div class="agent-name">Researcher</div>
+              <div class="agent-ens">researcher.swarmfi.eth</div>
+            </div>
+          </div>
+          <span class="badge" id="b-researcher">idle</span>
+        </div>
+        <div class="agent-purpose">Market scanner</div>
+        <div class="row"><span class="row-k">Pair</span>      <span class="row-v" id="r-pair">—</span></div>
+        <div class="row"><span class="row-k">Price</span>     <span class="row-v" id="r-price">—</span></div>
+        <div class="row"><span class="row-k">Strength</span>  <span class="row-v" id="r-strength">—</span></div>
+      </div>
+
+      <div class="agent-card" data-role="risk">
+        <div class="agent-hd">
+          <div class="agent-id">
+            <div class="agent-icon">Σ</div>
+            <div>
+              <div class="agent-name">Risk</div>
+              <div class="agent-ens">risk.swarmfi.eth</div>
+            </div>
+          </div>
+          <span class="badge" id="b-risk">idle</span>
+        </div>
+        <div class="agent-purpose">AI risk scoring · 0G Compute</div>
+
+        <div class="dial-wrap">
+          <div class="dial">
+            <svg viewBox="0 0 36 36">
+              <circle class="dial-bg" cx="18" cy="18" r="15.9"></circle>
+              <circle class="dial-fg" id="dial-fg" cx="18" cy="18" r="15.9"></circle>
+            </svg>
+            <div class="dial-text">
+              <div class="dial-num" id="dial-num">—</div>
+              <div class="dial-lbl">risk · /10</div>
+            </div>
+          </div>
+        </div>
+        <div class="row"><span class="row-k">Decision</span>  <span class="row-v" id="rk-action">—</span></div>
+        <div class="row"><span class="row-k">Confidence</span><span class="row-v" id="rk-conf">—</span></div>
+      </div>
+
+      <div class="agent-card" data-role="executor">
+        <div class="agent-hd">
+          <div class="agent-id">
+            <div class="agent-icon">▶</div>
+            <div>
+              <div class="agent-name">Executor</div>
+              <div class="agent-ens">executor.swarmfi.eth</div>
+            </div>
+          </div>
+          <span class="badge" id="b-executor">idle</span>
+        </div>
+        <div class="agent-purpose">Uniswap → KeeperHub broadcast</div>
+        <div class="row"><span class="row-k">Routing</span>  <span class="row-v" id="e-route">—</span></div>
+        <div class="row"><span class="row-k">Last tx</span>  <span class="row-v copyable" id="e-tx">—</span></div>
+        <div class="row"><span class="row-k">Status</span>   <span class="row-v" id="e-status">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE EDGE SCAN -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">02</span>
+      <span class="section-title">Live edge scan</span>
+      <span class="section-line"></span>
+      <span class="section-meta tip" data-tip="The researcher scans every bluechip pair on Base each cycle and picks the best by a composite edge score (momentum + bluechip + spread + size).">composite scoring</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="scan-table"><div class="story-empty">Loading edge scan…</div></div>
+    </div>
+  </section>
+
+  <!-- RUN A CYCLE -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">03</span>
+      <span class="section-title">Run a cycle</span>
+      <span class="section-line"></span>
+    </div>
+
+    <div class="panel">
+      <p class="panel-intro">
+        Inject a market signal and watch all three agents work. Behind the scenes: 0G&nbsp;Compute scores the risk, the Uniswap API builds the swap, KeeperHub broadcasts it, and 0G&nbsp;Storage commits an on-chain audit snapshot — all in a single click.
+      </p>
+
+      <div class="fire-grid">
+        <div class="field">
+          <span class="field-label tip" data-tip="Which pair the researcher will look at">Pair</span>
+          <select class="select" id="pair-select"></select>
+        </div>
+        <div class="field">
+          <span class="field-label tip" data-tip="How strong the price signal is. 'Strong' usually triggers a buy if risk allows.">Signal strength</span>
+          <select class="select" id="signal-select">
+            <option value="strong">strong</option>
+            <option value="medium" selected>medium</option>
+            <option value="weak">weak</option>
+          </select>
+        </div>
+        <div class="field">
+          <span class="field-label tip" data-tip="If the AI scores risk above this, the trade is auto-rejected.">Risk threshold</span>
+          <input class="input" id="risk-thresh" type="number" min="0" max="10" step="0.1" value="7.0">
+          <span class="field-help">Lower = more conservative</span>
+        </div>
+        <div class="field">
+          <span class="field-label tip" data-tip="Trade size in ETH. Default 0.001 ETH ≈ $2.30 — small enough to demo for hours on a single faucet top-up.">Amount (ETH)</span>
+          <input class="input" id="amount-eth" type="number" step="0.0001" min="0" value="0.001">
+          <span class="field-help" id="amount-help">≈ —</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;flex-wrap:wrap;gap:12px">
+        <div id="fire-status" class="fire-status"></div>
+        <div style="display:flex;align-items:center;gap:14px">
+          <label class="auto-toggle tip" data-tip="Run a cycle automatically every minute. Each cycle costs ~0.0001 ETH on the keeper wallet.">
+            <input type="checkbox" id="auto-cycle"><span>Auto-cycle every 60s</span>
+          </label>
+          <button class="btn btn-primary" id="fire-btn" onclick="fireTrade()">▶ Run a cycle</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ENS-BACKED AGENT IDENTITIES -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">04</span>
+      <span class="section-title">Agent identities · ENS profiles</span>
+      <span class="section-line"></span>
+      <span class="section-meta tip" data-tip="Each agent's identity is resolved through ENS at runtime. The dashboard never hardcodes addresses — it reads name → address + text records through our ENS resolver. Live updates after every cycle.">resolved on every poll</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="ens-table"><div class="story-empty">Resolving agent profiles via ENS…</div></div>
+    </div>
+  </section>
+
+  <!-- AXL P2P MESSAGE STREAM -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">05</span>
+      <span class="section-title">AXL peer-to-peer messages</span>
+      <span class="section-line"></span>
+      <span class="section-meta tip" data-tip="Real /send calls between separate Gensyn AXL nodes — researcher ↔ risk ↔ executor. Verifiable in axl/logs/.">inter-node, encrypted</span>
+    </div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <div id="axl-table"><div class="story-empty">No AXL messages yet — run a cycle to see inter-agent comms.</div></div>
+    </div>
+  </section>
+
+  <!-- TIMELINE -->
+  <section class="section">
+    <div class="section-hdr">
+      <span class="section-num">06</span>
+      <span class="section-title">Event timeline</span>
+      <span class="section-line"></span>
+      <span class="section-meta" id="log-update">—</span>
+    </div>
+    <div id="timeline" class="timeline">
+      <div class="tl-empty">Waiting for first event…</div>
+    </div>
+  </section>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     PANE — CHAT
+     ════════════════════════════════════════════════════════════ -->
+<div class="pane" id="pane-chat">
+  <div class="section-hdr">
+    <span class="section-num">⌘</span>
+    <span class="section-title">Talk to the swarm</span>
+    <span class="section-line"></span>
+    <span class="section-meta">via 0G Compute</span>
+  </div>
+
+  <div class="chat-wrap">
+    <aside class="chat-side">
+      <div class="chat-side-hd">Quick prompts</div>
+      <button class="qbtn" onclick="quickSend('Walk me through the last cycle in plain English.')">Walk through the last cycle</button>
+      <button class="qbtn" onclick="quickSend('Why did the risk agent score what it did?')">Why that risk score?</button>
+      <button class="qbtn" onclick="quickSend('How is risk threshold tuned, and what should I set it to?')">Tune the risk threshold</button>
+      <button class="qbtn" onclick="quickSend('What does KeeperHub add over a direct web3 broadcast?')">Why KeeperHub?</button>
+      <button class="qbtn" onclick="quickSend('How is Gensyn AXL used between the agents?')">How does AXL work here?</button>
+      <button class="qbtn" onclick="loadRecentAndAsk()">Audit recent decisions</button>
+    </aside>
+    <main class="chat-main">
+      <div class="chat-msgs" id="chat-messages">
+        <div class="msg msg-ai">
+          <div class="msg-label">SwarmFi AI</div>
+          I'm the in-app voice of this swarm — running on 0G Compute, grounded in the swarm's actual state. Ask me anything about the latest cycle, the risk score, the snapshot root, or how each piece fits together.
+        </div>
+      </div>
+      <div class="chat-input-row">
+        <textarea class="chat-input" id="chat-input" rows="1" placeholder="Ask about the latest cycle, risk scoring, KeeperHub, AXL…"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}"
+          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+        <button class="btn btn-primary" id="send-btn" onclick="sendChat()">Send</button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════
+     PANE — ENS
+     ════════════════════════════════════════════════════════════ -->
+<div class="pane" id="pane-ens">
+  <div class="section-hdr">
+    <span class="section-num">⌘</span>
+    <span class="section-title">Send to an ENS name</span>
+    <span class="section-line"></span>
+  </div>
+  <div class="panel">
+    <p class="panel-intro">
+      Resolve any <span style="font-family:var(--mono)">.eth</span> name and submit the transfer through KeeperHub for guaranteed delivery — gas pricing, nonce, and MEV protection handled automatically.
+    </p>
+    <div class="ens-grid">
+      <div class="field">
+        <span class="field-label">Recipient ENS or address</span>
+        <input class="input" id="ens-name" placeholder="vitalik.eth or 0x…" oninput="resolveENS()">
+        <div class="ens-resolved" id="ens-resolved"></div>
+      </div>
+      <div class="field">
+        <span class="field-label">Amount (ETH)</span>
+        <input class="input" id="ens-amount" placeholder="0.001">
+      </div>
+      <div class="field">
+        <span class="field-label">Network</span>
+        <select class="select" id="ens-network">
+          <option value="ethereum">Ethereum</option>
+          <option value="base">Base</option>
+        </select>
+      </div>
+      <button class="btn btn-success" onclick="executeENSTransfer()">Send via KeeperHub</button>
+    </div>
+    <div id="ens-result" style="margin-top:14px;font-family:var(--mono);font-size:12px"></div>
+  </div>
+</div>
+
+<footer>
+  <div class="gap-row">
+    <span>SwarmFi · ETHGlobal OpenAgents</span>
+    <span>·</span>
+    <a href="https://build.0g.ai" target="_blank">0G</a>
+    <a href="https://developers.uniswap.org/" target="_blank">Uniswap</a>
+    <a href="https://docs.keeperhub.com/" target="_blank">KeeperHub</a>
+    <a href="https://docs.gensyn.ai/tech/agent-exchange-layer" target="_blank">Gensyn AXL</a>
+    <a href="https://docs.ens.domains/" target="_blank">ENS</a>
+  </div>
+  <div class="mono" id="footer-version">—</div>
+</footer>
+
+<script>
+/* ───────────────────────────────────────────────────────────────────────────
+   STATE
+   ─────────────────────────────────────────────────────────────────────────── */
+let chatHistory   = [];
+let pairs         = [];
+let autoCycleTimer = null;
+const COMMITMENT_ETH = 0.0001;     // matches SWARMFI_COMMITMENT_ETH default
+let lastEthUsd       = 2300;       // refreshed each poll from the scan
+
+/* ───────────────────────────────────────────────────────────────────────────
+   INIT
+   ─────────────────────────────────────────────────────────────────────────── */
+window.addEventListener("DOMContentLoaded", () => {
+  // Subtle reveal — one short timeline only, no continuous animation
+  gsap.from(".hero", { y: 12, opacity: 0, duration: .6, ease: "power2.out" });
+  gsap.from(".agent-card", { y: 14, opacity: 0, duration: .5, stagger: .08, delay: .15, ease: "power2.out" });
+
+  document.querySelectorAll(".tab").forEach(t => {
+    t.addEventListener("click", () => switchTab(t.dataset.tab));
+  });
+
+  document.body.addEventListener("click", (e) => {
+    const c = e.target.closest(".copyable");
+    if (!c) return;
+    const t = c.textContent.trim();
+    if (!t || t === "—") return;
+    navigator.clipboard.writeText(t).then(() => {
+      const orig = c.style.color; c.style.color = "var(--green)";
+      setTimeout(() => { c.style.color = orig; }, 700);
+    });
+  });
+
+  // Auto-cycle toggle
+  const autoBox = document.getElementById("auto-cycle");
+  if (autoBox) {
+    autoBox.addEventListener("change", () => {
+      if (autoBox.checked) {
+        // Fire one immediately, then every 60s
+        fireTrade();
+        autoCycleTimer = setInterval(fireTrade, 60_000);
+      } else if (autoCycleTimer) {
+        clearInterval(autoCycleTimer);
+        autoCycleTimer = null;
+      }
+    });
+  }
+
+  // ETH amount → live $ helper text
+  const amt = document.getElementById("amount-eth");
+  if (amt) {
+    const refresh = () => {
+      const eth = parseFloat(amt.value || "0");
+      const help = document.getElementById("amount-help");
+      if (help) help.textContent = "≈ $" + (eth * lastEthUsd).toFixed(2);
+    };
+    amt.addEventListener("input", refresh);
+    refresh();
+  }
+
+  loadPairs();
+  poll();
+  setInterval(poll, 1500);   // tight loop so live cycle progress feels instant
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+   TABS
+   ─────────────────────────────────────────────────────────────────────────── */
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("active", p.id === "pane-" + name));
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   HELPERS
+   ─────────────────────────────────────────────────────────────────────────── */
+const SHORT = h => h ? (h.length <= 18 ? h : h.slice(0, 10) + "…" + h.slice(-6)) : "—";
+const ago = ts => {
+  if (!ts) return "";
+  const d = (Date.now() - new Date(ts)) / 1000;
+  if (d < 60)  return Math.round(d) + "s ago";
+  if (d < 3600) return Math.round(d/60) + "m ago";
+  return Math.round(d/3600) + "h ago";
+};
+const explorerForTx = tx => tx ? `https://sepolia.etherscan.io/tx/${tx}` : null;
+
+// 0G snapshot link:
+//   - if we have the flow tx hash, link to chainscan's tx page (best UX)
+//   - otherwise fall back to the swarm wallet's chainscan address page —
+//     every committed snapshot shows up there as a transaction. Root hashes
+//     alone are storage-layer Merkle roots; chainscan can't render them and
+//     a 'tx not found' page is what you get if you try.
+const SWARM_ADDRESS = "0x34939E50C09a7c1b1cEC69b1eF2F9A97995de0c2";
+const explorerForSnapshot = (txHash, root) => {
+  if (txHash) return `https://chainscan-galileo.0g.ai/tx/${txHash}`;
+  if (root)   return `https://chainscan-galileo.0g.ai/address/${SWARM_ADDRESS}`;
+  return null;
+};
+const riskBand = s => s == null ? "" : s <= 3 ? "low" : s <= 6 ? "mid" : "high";
+const riskColor = s => s == null ? "var(--accent)" : s <= 3 ? "var(--green)" : s <= 6 ? "var(--amber)" : "var(--rose)";
+
+/* ───────────────────────────────────────────────────────────────────────────
+   PAIRS
+   ─────────────────────────────────────────────────────────────────────────── */
+async function loadPairs(){
+  try{
+    const r = await fetch("/api/pairs");
+    pairs = await r.json();
+    const sel = document.getElementById("pair-select");
+    sel.innerHTML = pairs.map((p,i) => `<option value="${i}">${p.label}</option>`).join("");
+  }catch(_){}
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   AGENT RENDER
+   ─────────────────────────────────────────────────────────────────────────── */
+function setBadge(role, status) {
+  const el = document.getElementById("b-" + role);
+  if (!el) return;
+  el.textContent = (status || "idle").toLowerCase();
+  const card = document.querySelector(`.agent-card[data-role="${role}"]`);
+  const active = status && status.toUpperCase() !== "IDLE";
+  el.classList.toggle("badge-active", active);
+  if (card) card.dataset.active = active ? "true" : "false";
+}
+
+function renderState(state) {
+  const agents = state.agents || {};
+  const r  = agents.researcher || {};
+  const rk = agents.risk       || {};
+  const ex = agents.executor   || {};
+
+  setBadge("researcher", r.status);
+  setBadge("risk",       rk.status);
+  setBadge("executor",   ex.status);
+
+  const sig = r.last_signal || {};
+  const inSym  = sig.token_in_sym  || (sig.token_in  ? sig.token_in.slice(0,6)  : "—");
+  const outSym = sig.token_out_sym || (sig.token_out ? sig.token_out.slice(0,6) : "—");
+  document.getElementById("r-pair").textContent     = (sig.token_in||sig.token_out) ? `${inSym} → ${outSym}` : "—";
+  document.getElementById("r-price").textContent    = sig.price_usd ? "$" + Number(sig.price_usd).toFixed(2) : "—";
+  document.getElementById("r-strength").textContent = sig.signal || "—";
+
+  const score = rk.last_risk_score;
+  const fg    = document.getElementById("dial-fg");
+  const num   = document.getElementById("dial-num");
+  if (score != null) {
+    fg.style.stroke = riskColor(score);
+    fg.setAttribute("stroke-dasharray", `${Math.max(0, Math.min(100, score * 10))} 100`);
+    gsap.to(num, { textContent: score.toFixed(1), duration: .5, ease: "power2.out",
+      snap: { textContent: 0.1 },
+      onUpdate: function(){ num.textContent = parseFloat(num.textContent).toFixed(1); }
+    });
+  } else {
+    fg.setAttribute("stroke-dasharray", "0 100");
+    num.textContent = "—";
+  }
+  document.getElementById("rk-action").textContent = (rk.last_action || "—").toUpperCase();
+  document.getElementById("rk-conf").textContent   = rk.last_confidence != null
+    ? Math.round(rk.last_confidence*100) + "%" : "—";
+
+  document.getElementById("e-route").textContent  = ex.last_routing || "Uniswap";
+  const tx = ex.last_tx_hash;
+  document.getElementById("e-tx").textContent     = SHORT(tx);
+  document.getElementById("e-status").textContent = (ex.status || "idle").toLowerCase();
+
+  // Hero stats
+  const cyc = state.version || 0;
+  document.getElementById("hs-cycle").textContent = cyc ? cyc.toString() : "—";
+
+  // Notional P&L summary — cumulative committed ETH × current ETH/USD
+  const committedEth = (cyc * COMMITMENT_ETH);
+  document.getElementById("hs-pnl-committed").textContent =
+    cyc ? `${committedEth.toFixed(4)} ETH · $${(committedEth * lastEthUsd).toFixed(2)}` : "—";
+
+  // Notional value = SUM of (the size each cycle would have swapped, scaled by entry price)
+  // We approximate from the user's current trade-amount × cycles × entry price.
+  const tradeEth = parseFloat(document.getElementById("amount-eth")?.value || "0.001");
+  const notional = cyc * tradeEth * lastEthUsd;
+  document.getElementById("hs-pnl-notional").textContent =
+    cyc ? `$${notional.toFixed(2)} (${(cyc * tradeEth).toFixed(3)} ETH @ entry)` : "—";
+
+  document.getElementById("hs-action").textContent = (rk.last_action || "—").toUpperCase();
+  const hsTx = document.getElementById("hs-tx");
+  hsTx.innerHTML = tx ? `<a href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>` : "—";
+
+  const snap   = state.snapshot_root;
+  const snapTx = state.snapshot_tx;
+  // hero stat: show the tx hash when we have it (chainscan-resolvable),
+  // otherwise the storage root (still useful as a content identifier).
+  const hsSnapEl = document.getElementById("hs-snap");
+  const snapUrl  = explorerForSnapshot(snapTx, snap);
+  if (snapTx) {
+    hsSnapEl.innerHTML = `<a href="${snapUrl}" target="_blank">${SHORT(snapTx)}</a>`;
+  } else if (snap) {
+    hsSnapEl.innerHTML = `<a href="${snapUrl}" target="_blank">${SHORT(snap)}</a>`;
+  } else {
+    hsSnapEl.textContent = "—";
+  }
+
+  const pill = document.getElementById("snapshot-pill");
+  if (snap || snapTx) {
+    pill.style.display = "flex";
+    pill.href = snapUrl || "#";
+    document.getElementById("snapshot-text").textContent = SHORT(snapTx || snap);
+  } else {
+    pill.style.display = "none";
+  }
+
+  return { sig, rk, ex, score, snap, version: state.version || 0 };
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   NARRATOR — one live line driven by in_progress + last result
+   ─────────────────────────────────────────────────────────────────────────── */
+function renderNarrator(ctx, inProgress) {
+  const el = document.getElementById("narrator-text");
+  const { sig, rk, ex, score, snap, version } = ctx;
+
+  // Live in-progress takes precedence
+  if (inProgress && inProgress.stage) {
+    const sg = inProgress.signal || {};
+    const inSym  = sg.token_in_sym  || "?";
+    const outSym = sg.token_out_sym || "?";
+    const stageMap = {
+      scanning:   `Scanning markets — looking at <em>${inSym} → ${outSym}</em>…`,
+      deciding:   `Risk agent scoring on 0G Compute…` + (inProgress.risk != null ? ` Got <span class="v">${Number(inProgress.risk).toFixed(1)}/10</span>.` : ""),
+      executing:  `Executing — Uniswap quote → KeeperHub broadcast…`,
+      committing: `Committing on-chain snapshot to 0G Storage…`,
+    };
+    el.innerHTML = stageMap[inProgress.stage] || "Working…";
+    return;
+  }
+
+  if (!version) {
+    el.innerHTML = "Idle — hit <em>Run a cycle</em> to start the swarm.";
+    return;
+  }
+
+  const inSym  = sig.token_in_sym  || "input";
+  const outSym = sig.token_out_sym || "output";
+  const price  = sig.price_usd ? `$${Number(sig.price_usd).toFixed(2)}` : "—";
+  const action = (rk.last_action || "hold").toLowerCase();
+  const tx     = ex.last_tx_hash;
+
+  if (action === "hold") {
+    el.innerHTML = `<em>HOLD</em> on ${inSym}→${outSym} · risk <span class="v">${score?.toFixed(1) || "?"}/10</span>`;
+  } else if (tx) {
+    el.innerHTML = `<em>${action.toUpperCase()}</em> ${inSym}→${outSym} @ <span class="v">${price}</span> · risk <span class="v">${score?.toFixed(1)}/10</span> · tx <a class="ext" href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>`;
+  } else {
+    el.innerHTML = `<em>${action.toUpperCase()}</em> ${inSym}→${outSym} · queued at KeeperHub`;
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   TIMELINE
+   ─────────────────────────────────────────────────────────────────────────── */
+function renderLog(entries) {
+  const tl = document.getElementById("timeline");
+  if (!entries || !entries.length) {
+    tl.innerHTML = '<div class="tl-empty">Waiting for first event…</div>';
+    return;
+  }
+  const rows = entries.slice().reverse().slice(0, 30).map(e => {
+    const t   = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "—";
+    const evt = (e.event_type || "EVENT").replace(/_/g, " ");
+    const cls = e.event_type || "";
+    const data = e.data || {};
+    const bits = [];
+    if (data.action     != null) bits.push(`action=${String(data.action).toUpperCase()}`);
+    if (data.risk_score != null) bits.push(`risk=${Number(data.risk_score).toFixed(1)}`);
+    if (data.price_usd  != null) bits.push(`$${Number(data.price_usd).toFixed(0)}`);
+    if (data.tx_hash)            bits.push(`tx=${SHORT(data.tx_hash)}`);
+    if (data.error)              bits.push(`err=${String(data.error).slice(0, 60)}`);
+    return `<div class="tl-row">
+      <span class="tl-time">${t}</span>
+      <span class="tl-evt ${cls}">${evt}</span>
+      <span class="tl-agent">${e.agent_role || "—"}</span>
+      <span class="tl-detail">${bits.join(" · ") || "—"}</span>
+    </div>`;
+  }).join("");
+  tl.innerHTML = rows;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   POLL
+   ─────────────────────────────────────────────────────────────────────────── */
+function renderScan(scan) {
+  const root = document.getElementById("scan-table");
+  if (!scan || !scan.ranked || !scan.ranked.length) {
+    root.innerHTML = '<div class="story-empty">No pairs available — check CoinGecko connectivity.</div>';
+    return;
+  }
+  // Pick up the live ETH price for the dollar conversions across the dashboard
+  const ethRow = scan.ranked.find(r => /^ETH\b/.test(r.label));
+  if (ethRow && ethRow.price_usd > 0) {
+    lastEthUsd = ethRow.price_usd;
+    const help = document.getElementById("amount-help");
+    if (help) {
+      const eth = parseFloat(document.getElementById("amount-eth")?.value || "0.001");
+      help.textContent = "≈ $" + (eth * lastEthUsd).toFixed(2);
+    }
+  }
+  const bestId = scan.best?.pair_id;
+  const rows = scan.ranked.map(r => {
+    const isBest = r.pair_id === bestId;
+    const pct = (r.composite * 100).toFixed(0);
+    const upDown = (r.momentum_24h || 0) >= 0 ? "up" : "down";
+    const arrow = (r.momentum_24h || 0) >= 0 ? "▲" : "▼";
+    return `<tr class="${isBest ? 'best' : ''}">
+      <td>${r.label}</td>
+      <td class="num">$${Number(r.price_usd || 0).toFixed(2)}</td>
+      <td class="num ${upDown}">${arrow} ${Math.abs(r.momentum_24h || 0).toFixed(2)}%</td>
+      <td><div class="composite-bar"><div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div><span>${r.composite.toFixed(2)}</span></div></td>
+      <td><span class="signal-pill signal-${r.signal}">${r.signal}</span></td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="scan-tbl">
+    <thead><tr><th>Pair</th><th class="num">Price</th><th class="num">24h</th><th>Composite edge</th><th>Signal</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderEns(data) {
+  const root = document.getElementById("ens-table");
+  if (!root) return;
+  const agents = (data && data.agents) || [];
+  if (!agents.length) {
+    root.innerHTML = '<div class="story-empty">No agent profiles available.</div>';
+    return;
+  }
+  const rows = agents.map(a => {
+    const addr = a.address ? SHORT(a.address) : '<span class="empty">unset</span>';
+    const v = (val) => val ? String(val) : '<span class="ens-rec-v empty">—</span>';
+    const txCell = a.tx
+      ? `<a href="${explorerForTx(a.tx)}" target="_blank" style="color:var(--green)">${SHORT(a.tx)}</a>`
+      : '<span class="ens-rec-v empty">—</span>';
+    return `<tr>
+      <td style="min-width:200px">
+        <div class="ens-name">${a.name}</div>
+        <div class="ens-addr copyable" title="${a.address || ""}">${addr}</div>
+      </td>
+      <td>
+        <div class="ens-records">
+          <div class="ens-rec"><span class="ens-rec-k">role</span><span class="ens-rec-v">${v(a.role)}</span></div>
+          <div class="ens-rec"><span class="ens-rec-k">status</span><span class="ens-rec-v">${v(a.status)}</span></div>
+          <div class="ens-rec"><span class="ens-rec-k">last</span><span class="ens-rec-v">${v(a.last)}</span></div>
+          <div class="ens-rec"><span class="ens-rec-k">tx</span>${txCell}</div>
+          <div class="ens-rec"><span class="ens-rec-k">snapshot</span><span class="ens-rec-v">${a.snapshot ? SHORT(a.snapshot) : '<span class="empty">—</span>'}</span></div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="ens-tbl">
+    <thead><tr><th>ENS name</th><th>SwarmFi text records (resolved live)</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function renderAxl(data) {
+  const root = document.getElementById("axl-table");
+  if (!root) return;
+  const events = (data && data.events) || [];
+  if (!events.length) {
+    root.innerHTML = '<div class="story-empty">No AXL messages yet — run a cycle to see inter-agent comms.</div>';
+    return;
+  }
+  const rows = events.slice().reverse().map(e => {
+    const t = e.ts ? new Date(e.ts).toLocaleTimeString() : "—";
+    return `<tr>
+      <td style="color:var(--muted)">${t}</td>
+      <td><span class="axl-flow"><span>${e.from}</span><span class="arrow">→</span><span>${e.to}</span></span></td>
+      <td><span class="axl-mtype">${(e.message_type||"").replace(/_/g," ")}</span></td>
+      <td style="color:var(--ink)">${e.summary || ""}</td>
+    </tr>`;
+  }).join("");
+  root.innerHTML = `<table class="axl-tbl">
+    <thead><tr><th>Time</th><th>Flow</th><th>Type</th><th>Summary</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+async function poll() {
+  try {
+    const [sr, lr, scn, axl, ens] = await Promise.all([
+      fetch("/api/state"), fetch("/api/log"), fetch("/api/scan"),
+      fetch("/api/axl"),   fetch("/api/agents"),
+    ]);
+    const state    = await sr.json();
+    const log      = await lr.json();
+    const scan     = await scn.json().catch(() => ({}));
+    const axlData  = await axl.json().catch(() => ({events:[]}));
+    const ensData  = await ens.json().catch(() => ({agents:[]}));
+    const ctx = renderState(state);
+    renderNarrator(ctx, state.in_progress);
+    renderLog(log);
+    renderScan(scan);
+    renderAxl(axlData);
+    renderEns(ensData);
+
+    document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
+    document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();
+    document.getElementById("footer-version").textContent =
+      state.version ? `cycle #${state.version} · ${ago(state.updated_at)}` : "no cycles yet";
+  } catch (e) {
+    document.getElementById("live-txt").textContent = "Connection error";
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   FIRE SIGNAL
+   ─────────────────────────────────────────────────────────────────────────── */
+async function fireTrade() {
+  const pairIdx = parseInt(document.getElementById("pair-select").value || "0");
+  const pair    = pairs[pairIdx] || {};
+  const signal  = document.getElementById("signal-select").value;
+  const thresh  = parseFloat(document.getElementById("risk-thresh").value);
+  // Convert the ETH input to wei (BigInt-safe for fractional ETH).
+  const eth     = parseFloat(document.getElementById("amount-eth").value || "0.001");
+  const amount  = Math.round(eth * 1e18);
+  const btn     = document.getElementById("fire-btn");
+  const status  = document.getElementById("fire-status");
+
+  await fetch("/api/config", { method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ risk_threshold: thresh }) });
+
+  btn.disabled = true; btn.textContent = "⏳ Running…";
+  status.textContent = "Researcher → Risk → Executor…";
+
+  try {
+    const r = await fetch("/api/signal", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        token_in:  pair.token_in  || "0x0000000000000000000000000000000000000000",
+        token_out: pair.token_out || "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        chain_id:  pair.chain_id  || 8453,
+        signal: signal,
+        reason: `Manual signal · ${pair.label || 'ETH→USDC'} · strength=${signal}`,
+        amount_wei: amount,
+      })
+    });
+    const data = await r.json();
+    status.textContent = `✓ Fired · price=$${(data.signal?.price_usd || 0).toFixed(0)} · settling…`;
+    setTimeout(() => { status.textContent = ""; }, 9000);
+  } catch (e) {
+    status.textContent = "✗ " + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "▶ Run a cycle";
+    setTimeout(poll, 2500);
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   CHAT
+   ─────────────────────────────────────────────────────────────────────────── */
+function appendMsg(role, text, isTyping=false) {
+  const box = document.getElementById("chat-messages");
+  const el  = document.createElement("div");
+  el.className = role === "user" ? "msg msg-user" : "msg msg-ai";
+  if (role === "ai") {
+    if (isTyping) {
+      el.innerHTML = '<div class="msg-label">SwarmFi AI</div><div class="typing"><span></span><span></span><span></span></div>';
+      el.id = "typing-indicator";
+    } else {
+      const formatted = String(text).replace(/```([\s\S]*?)```/g, "<pre>$1</pre>").replace(/\n/g, "<br>");
+      el.innerHTML = `<div class="msg-label">SwarmFi AI</div>${formatted}`;
+    }
+  } else {
+    el.textContent = text;
+  }
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+async function sendChat() {
+  const inp = document.getElementById("chat-input");
+  const btn = document.getElementById("send-btn");
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = ""; inp.style.height = "auto";
+  btn.disabled = true;
+
+  appendMsg("user", text);
+  chatHistory.push({ role: "user", content: text });
+  const typing = appendMsg("ai", "", true);
+
+  try {
+    const r = await fetch("/api/chat", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ messages: chatHistory })
+    });
+    const data = await r.json();
+    typing.remove();
+    const reply = data.reply || "(no response)";
+    appendMsg("ai", reply);
+    chatHistory.push({ role: "assistant", content: reply });
+  } catch (e) {
+    typing.remove();
+    appendMsg("ai", "Connection error: " + e.message);
+  } finally {
+    btn.disabled = false; inp.focus();
+  }
+}
+
+function quickSend(text) {
+  switchTab("chat");
+  document.getElementById("chat-input").value = text;
+  sendChat();
+}
+
+async function loadRecentAndAsk() {
+  const log = await fetch("/api/log").then(r=>r.json()).catch(()=>[]);
+  const summary = log.slice(-10).map(e =>
+    `[${e.agent_role}] ${e.event_type}: ${JSON.stringify(e.data).slice(0,90)}`
+  ).join("\n");
+  const prompt = summary
+    ? `Audit these last ${Math.min(log.length,10)} swarm events. Were the decisions correct? Any patterns?\n\n${summary}`
+    : "There are no recorded events yet. How should I configure the swarm to start trading?";
+  quickSend(prompt);
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   ENS TRANSFER
+   ─────────────────────────────────────────────────────────────────────────── */
+let ensTimer = null;
+async function resolveENS() {
+  clearTimeout(ensTimer);
+  const name = document.getElementById("ens-name").value.trim();
+  const out  = document.getElementById("ens-resolved");
+  if (!name) { out.textContent = ""; return; }
+  ensTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`/api/ens/resolve/${encodeURIComponent(name)}`);
+      const d = await r.json();
+      if (d.resolved) { out.style.color = "var(--green)"; out.textContent = "✓ " + d.address; }
+      else            { out.style.color = "var(--rose)";  out.textContent = "✗ Could not resolve"; }
+    } catch(_) {}
+  }, 600);
+}
+
+async function executeENSTransfer() {
+  const recipient = document.getElementById("ens-name").value.trim();
+  const amount    = document.getElementById("ens-amount").value.trim();
+  const network   = document.getElementById("ens-network").value;
+  const out       = document.getElementById("ens-result");
+  if (!recipient || !amount) { out.style.color = "var(--amber)"; out.textContent = "Enter recipient and amount."; return; }
+  out.style.color = "var(--muted)";
+  out.textContent = "⏳ Resolving & submitting via KeeperHub…";
+  try {
+    const r = await fetch("/api/transfer", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ recipient, amount, network })
+    });
+    const d = await r.json();
+    if (r.ok) {
+      out.style.color = "var(--green)";
+      out.textContent = `✓ Submitted · exec ${SHORT(d.execution_id)} · resolved ${SHORT(d.resolved_address)}`;
+    } else {
+      out.style.color = "var(--rose)";
+      out.textContent = "✗ " + (d.detail || "failed");
+    }
+  } catch (e) {
+    out.style.color = "var(--rose)";
+    out.textContent = "✗ " + e.message;
+  }
+}
+</script>
+</body>
+</html>

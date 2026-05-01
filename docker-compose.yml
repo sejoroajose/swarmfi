@@ -1,0 +1,20 @@
+# Local container test — `docker compose up`. Coolify uses the Dockerfile
+# directly and ignores this file, but it's the same shape so behaviour
+# matches between dev and prod.
+
+services:
+  swarmfi:
+    build: .
+    image: swarmfi:latest
+    container_name: swarmfi
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      # Persist the dashboard sidecar state file so cycles survive restarts
+      - swarmfi-logs:/app/logs
+
+volumes:
+  swarmfi-logs:

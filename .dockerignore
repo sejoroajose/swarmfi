@@ -1,0 +1,41 @@
+# Reproducible, minimal context — keep the build fast and the image small.
+.git
+.github
+.claude
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+.coverage
+
+# Local-only state — never ships to production
+.env
+.env.*
+!.env.example
+logs/
+swarmfi.egg-info
+
+# Hackathon planning notes (not source of truth)
+hackathon.txt
+project.txt
+
+# AXL node binary + private keys — only kept locally, separate doc in axl/
+axl/node
+axl/keys/
+axl/*.pid
+axl/logs/
+axl/axl-repo/
+
+# Docs ship via git, not via the image
+tests/
+*.md
+!README.md
+
+# 0G sidecar's node_modules — built fresh in the image
+zg-sidecar/node_modules

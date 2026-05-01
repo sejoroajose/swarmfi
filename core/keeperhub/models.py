@@ -21,7 +21,9 @@ class KHExecutionStatus(str, Enum):
     PENDING   = "pending"
     RUNNING   = "running"
     SUCCESS   = "success"
+    COMPLETED = "completed"   # KH returns this synonym from /execute/transfer
     FAILED    = "failed"
+    ERROR     = "error"       # KH alternative spelling
     CANCELLED = "cancelled"
 
 
@@ -150,13 +152,15 @@ class KHExecutionStatus_(BaseModel):
 
     @property
     def succeeded(self) -> bool:
-        return self.status == KHExecutionStatus.SUCCESS
+        return self.status in (KHExecutionStatus.SUCCESS, KHExecutionStatus.COMPLETED)
 
     @property
     def is_terminal(self) -> bool:
         return self.status in (
             KHExecutionStatus.SUCCESS,
+            KHExecutionStatus.COMPLETED,
             KHExecutionStatus.FAILED,
+            KHExecutionStatus.ERROR,
             KHExecutionStatus.CANCELLED,
         )
 

@@ -131,6 +131,65 @@ returns a mock tx hash would be valuable for CI and development.
 
 ---
 
+## Reproducible Bug — `/api/execute/contract-call` rejects Universal Router calldata
+
+### Steps to reproduce
+1. Authenticate with a valid `kh_…` API key
+2. Build a Uniswap V3 swap via the Uniswap Trading API for ETH→USDC on Base (chain 8453). The API returns `to` (Universal Router on Base, `0x6fF5693b99212Da76ad316178A184AB56D299b43`) plus pre-encoded `data` and `value`
+3. POST to `https://app.keeperhub.com/api/execute/contract-call` with:
+   ```json
+   {
+     "contractAddress": "0x6fF5693b99212Da76ad316178A184AB56D299b43",
+     "network": "base",
+     "functionName": "execute",
+     "calldata": "0x3593564c…",
+     "value": "1000000000000000"
+   }
+   ```
+
+### Observed
+KH returns a queued execution_id, then the execution fails with:
+```
+"Contract call failed: RPC failed on both endpoints. Primary:
+ internal error: fragment inputs doesn't match arguments;
+ should not happen. Fallback: same."
+```
+The `calldata` field appears to be silently ignored — KH still tries to
+encode `execute()` from `functionName` + (empty) `functionArgs`.
+
+### Workaround
+We decoded the Uniswap-built calldata back to its three primitives
+(`bytes commands`, `bytes[] inputs`, `uint256 deadline`) with
+`eth_abi.decode` and re-submitted using `functionArgs` + an explicit
+`abi` fragment. KH's encoder accepts this — but execution then either:
+- reverts on-chain with custom error selector `0x6a12f104` (likely
+  Permit2 / payer-address mismatch in the Universal Router), OR
+- returns `500 Internal Server Error` from KH's RPC layer
+
+### Suggestions
+1. **Either honour the `calldata` field as passthrough**, or **document
+   that it is ignored** — right now it exists in the request schema and
+   silently does nothing, which is a footgun.
+2. **Add a dedicated raw-tx endpoint** — `POST /api/execute/raw` taking
+   `{to, data, value, network}`. Every major DEX (Uniswap, 1inch, 0x,
+   CowSwap) returns fully-formed calldata; KH currently forces builders
+   to round-trip through ABI decode + re-encode for no benefit.
+3. **Surface custom-error selectors in failures** — KH already has the
+   ABI cached for encoding; it could match the revert selector against
+   the ABI's `error` entries and return a human-readable name.
+4. **Distinguish KH-side errors from on-chain reverts** — the same
+   "Contract call failed" wrapper today covers eth_call sim failures,
+   RPC errors, and real on-chain reverts. Exposing which layer failed
+   (`encode | simulate | broadcast | confirm`) would cut debug time
+   dramatically.
+
+### Impact
+This was the single biggest blocker in our integration. ~4 hours
+debugging KH encoding vs on-chain reverts vs keeper-wallet funding.
+Suggestions above would have made this ~15 minutes.
+
+---
+
 ## Feature Requests
 
 1. **Batch execution** — submit multiple `execute_contract_call` items

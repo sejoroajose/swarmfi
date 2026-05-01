@@ -31,6 +31,7 @@ Thumbs.db
 
 # Local runtime artifacts (logs, dashboard state file)
 logs/
+axl/logs/
 
 # Local planning notes (not source of truth)
 hackathon.txt

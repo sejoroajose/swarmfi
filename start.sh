@@ -81,6 +81,26 @@ pkill -f "dashboard/server.py" 2>/dev/null || true
 pkill -f "uvicorn" 2>/dev/null || true
 sleep 0.3
 
+# ── Start AXL nodes (researcher / risk / executor) ────────────────────────────
+# Skip if the binary is missing or AXL is intentionally disabled.
+if [[ -f "$REPO/axl/node" && "${SWARMFI_DISABLE_AXL:-0}" != "1" ]]; then
+  info "Starting AXL nodes (researcher · risk · executor)…"
+  if "$REPO/scripts/start_nodes.sh" >/dev/null 2>&1; then
+    if curl -sf http://127.0.0.1:9002/topology >/dev/null 2>&1 \
+       && curl -sf http://127.0.0.1:9012/topology >/dev/null 2>&1 \
+       && curl -sf http://127.0.0.1:9022/topology >/dev/null 2>&1; then
+      ok "AXL nodes healthy — researcher:9002, risk:9012, executor:9022"
+    else
+      warn "AXL nodes started but not all reachable — check axl/logs/"
+    fi
+  else
+    warn "AXL start failed — inter-node messages will be skipped (cycle still works)"
+  fi
+else
+  warn "AXL binary not found — inter-node messages will be skipped"
+fi
+echo ""
+
 # ── Start dashboard ───────────────────────────────────────────────────────────
 info "Starting dashboard…"
 mkdir -p "$REPO/logs"

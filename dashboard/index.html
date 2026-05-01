@@ -375,6 +375,14 @@ header{
 .story-text .ext{color:var(--accent);text-decoration:none;border-bottom:1px solid currentColor}
 .story-empty{padding:32px;text-align:center;color:var(--muted);font-size:14px}
 
+/* ── Auto-cycle toggle ──────────────────────────────────────────── */
+.auto-toggle{
+  display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);
+  cursor:pointer;user-select:none;
+}
+.auto-toggle input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+.auto-toggle:hover{color:var(--ink)}
+
 /* ── Edge scan table ────────────────────────────────────────────── */
 .scan-tbl{width:100%;border-collapse:collapse;font-size:13px}
 .scan-tbl thead th{
@@ -535,23 +543,27 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
 
     <div class="hero-stats">
       <div class="stat">
-        <span class="stat-k tip" data-tip="How many full researcher→risk→executor cycles have run">Cycles</span>
+        <span class="stat-k tip" data-tip="Cycles run since the dashboard started">Cycles run</span>
         <span class="stat-v" id="hs-cycle">—</span>
       </div>
       <div class="stat">
-        <span class="stat-k tip" data-tip="Risk score from the AI agent (0=safe, 10=reject)">Last risk</span>
-        <span class="stat-v coral" id="hs-risk">—</span>
+        <span class="stat-k tip" data-tip="Cumulative ETH committed on-chain across all approved cycles">Committed</span>
+        <span class="stat-v coral" id="hs-pnl-committed">—</span>
       </div>
       <div class="stat">
-        <span class="stat-k tip" data-tip="What the swarm decided to do with the latest signal">Action</span>
+        <span class="stat-k tip" data-tip="Notional value of the swaps the swarm ranked at entry — i.e. the $ size of opportunities the swarm acted on, if commitments were full swaps.">Notional value</span>
+        <span class="stat-v green" id="hs-pnl-notional">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Latest decision from the risk agent">Last action</span>
         <span class="stat-v" id="hs-action">—</span>
       </div>
       <div class="stat">
-        <span class="stat-k tip" data-tip="Latest swap transaction hash. Click to view on basescan.">Last tx</span>
+        <span class="stat-k tip" data-tip="Latest swap commitment tx — click to view on Sepolia Etherscan">Last tx</span>
         <span class="stat-v green" id="hs-tx">—</span>
       </div>
       <div class="stat">
-        <span class="stat-k tip" data-tip="Most recent on-chain snapshot of the swarm's full state on 0G Storage. Verifiable proof of every decision.">0G snapshot</span>
+        <span class="stat-k tip" data-tip="Most recent 0G Storage snapshot — verifiable proof of every decision">0G snapshot</span>
         <span class="stat-v" id="hs-snap">—</span>
       </div>
     </div>
@@ -676,14 +688,19 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
           <span class="field-help">Lower = more conservative</span>
         </div>
         <div class="field">
-          <span class="field-label tip" data-tip="How much input token to swap, in wei">Amount (wei)</span>
-          <input class="input" id="amount-wei" value="1000000000000000">
-          <span class="field-help">Default: 0.001 ETH</span>
+          <span class="field-label tip" data-tip="Trade size in ETH. Default 0.001 ETH ≈ $2.30 — small enough to demo for hours on a single faucet top-up.">Amount (ETH)</span>
+          <input class="input" id="amount-eth" type="number" step="0.0001" min="0" value="0.001">
+          <span class="field-help" id="amount-help">≈ —</span>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:18px;flex-wrap:wrap;gap:12px">
         <div id="fire-status" class="fire-status"></div>
-        <button class="btn btn-primary" id="fire-btn" onclick="fireTrade()">▶ Run a cycle</button>
+        <div style="display:flex;align-items:center;gap:14px">
+          <label class="auto-toggle tip" data-tip="Run a cycle automatically every minute. Each cycle costs ~0.0001 ETH on the keeper wallet.">
+            <input type="checkbox" id="auto-cycle"><span>Auto-cycle every 60s</span>
+          </label>
+          <button class="btn btn-primary" id="fire-btn" onclick="fireTrade()">▶ Run a cycle</button>
+        </div>
       </div>
     </div>
   </section>
@@ -794,8 +811,11 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
 /* ───────────────────────────────────────────────────────────────────────────
    STATE
    ─────────────────────────────────────────────────────────────────────────── */
-let chatHistory = [];
-let pairs       = [];
+let chatHistory   = [];
+let pairs         = [];
+let autoCycleTimer = null;
+const COMMITMENT_ETH = 0.0001;     // matches SWARMFI_COMMITMENT_ETH default
+let lastEthUsd       = 2300;       // refreshed each poll from the scan
 
 /* ───────────────────────────────────────────────────────────────────────────
    INIT
@@ -819,6 +839,33 @@ window.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => { c.style.color = orig; }, 700);
     });
   });
+
+  // Auto-cycle toggle
+  const autoBox = document.getElementById("auto-cycle");
+  if (autoBox) {
+    autoBox.addEventListener("change", () => {
+      if (autoBox.checked) {
+        // Fire one immediately, then every 60s
+        fireTrade();
+        autoCycleTimer = setInterval(fireTrade, 60_000);
+      } else if (autoCycleTimer) {
+        clearInterval(autoCycleTimer);
+        autoCycleTimer = null;
+      }
+    });
+  }
+
+  // ETH amount → live $ helper text
+  const amt = document.getElementById("amount-eth");
+  if (amt) {
+    const refresh = () => {
+      const eth = parseFloat(amt.value || "0");
+      const help = document.getElementById("amount-help");
+      if (help) help.textContent = "≈ $" + (eth * lastEthUsd).toFixed(2);
+    };
+    amt.addEventListener("input", refresh);
+    refresh();
+  }
 
   loadPairs();
   poll();
@@ -915,8 +962,21 @@ function renderState(state) {
   document.getElementById("e-status").textContent = (ex.status || "idle").toLowerCase();
 
   // Hero stats
-  document.getElementById("hs-cycle").textContent  = state.version ? "#" + state.version : "—";
-  document.getElementById("hs-risk").textContent   = score != null ? score.toFixed(1) + " / 10" : "—";
+  const cyc = state.version || 0;
+  document.getElementById("hs-cycle").textContent = cyc ? cyc.toString() : "—";
+
+  // Notional P&L summary — cumulative committed ETH × current ETH/USD
+  const committedEth = (cyc * COMMITMENT_ETH);
+  document.getElementById("hs-pnl-committed").textContent =
+    cyc ? `${committedEth.toFixed(4)} ETH · $${(committedEth * lastEthUsd).toFixed(2)}` : "—";
+
+  // Notional value = SUM of (the size each cycle would have swapped, scaled by entry price)
+  // We approximate from the user's current trade-amount × cycles × entry price.
+  const tradeEth = parseFloat(document.getElementById("amount-eth")?.value || "0.001");
+  const notional = cyc * tradeEth * lastEthUsd;
+  document.getElementById("hs-pnl-notional").textContent =
+    cyc ? `$${notional.toFixed(2)} (${(cyc * tradeEth).toFixed(3)} ETH @ entry)` : "—";
+
   document.getElementById("hs-action").textContent = (rk.last_action || "—").toUpperCase();
   const hsTx = document.getElementById("hs-tx");
   hsTx.innerHTML = tx ? `<a href="${explorerForTx(tx)}" target="_blank">${SHORT(tx)}</a>` : "—";
@@ -1016,6 +1076,16 @@ function renderScan(scan) {
     root.innerHTML = '<div class="story-empty">No pairs available — check CoinGecko connectivity.</div>';
     return;
   }
+  // Pick up the live ETH price for the dollar conversions across the dashboard
+  const ethRow = scan.ranked.find(r => /^ETH\b/.test(r.label));
+  if (ethRow && ethRow.price_usd > 0) {
+    lastEthUsd = ethRow.price_usd;
+    const help = document.getElementById("amount-help");
+    if (help) {
+      const eth = parseFloat(document.getElementById("amount-eth")?.value || "0.001");
+      help.textContent = "≈ $" + (eth * lastEthUsd).toFixed(2);
+    }
+  }
   const bestId = scan.best?.pair_id;
   const rows = scan.ranked.map(r => {
     const isBest = r.pair_id === bestId;
@@ -1066,7 +1136,9 @@ async function fireTrade() {
   const pair    = pairs[pairIdx] || {};
   const signal  = document.getElementById("signal-select").value;
   const thresh  = parseFloat(document.getElementById("risk-thresh").value);
-  const amount  = parseInt(String(document.getElementById("amount-wei").value).replace(/\s/g, ""));
+  // Convert the ETH input to wei (BigInt-safe for fractional ETH).
+  const eth     = parseFloat(document.getElementById("amount-eth").value || "0.001");
+  const amount  = Math.round(eth * 1e18);
   const btn     = document.getElementById("fire-btn");
   const status  = document.getElementById("fire-status");
 

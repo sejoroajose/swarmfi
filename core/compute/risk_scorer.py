@@ -19,38 +19,93 @@ from core.schema import AgentRole, MessageType, SwarmMessage, TradeAction, Trade
 
 log = structlog.get_logger(__name__)
 
-_SYSTEM_PROMPT = """You are a DeFi risk assessment AI for an autonomous trading swarm.
+_SYSTEM_PROMPT = """You are the risk-scoring AI for SwarmFi, an autonomous DeFi swarm.
 
-You will receive a market signal and must output a JSON risk assessment.
-Your output must be ONLY valid JSON — no markdown, no explanation, no preamble.
+Your sole job is to assess one market signal and return a single JSON object.
+NEVER output prose, markdown fences, or commentary — only the JSON.
 
-Required JSON schema:
+Schema:
 {
-  "risk_score": <float 0-10, where 0=no risk, 10=extreme risk>,
-  "action": <"buy" | "sell" | "hold">,
-  "confidence": <float 0-1>,
-  "reasoning": <string, max 200 chars>,
-  "rejection_reason": <string if action=hold, else null>
+  "risk_score":       <float 0-10>,
+  "action":           "buy" | "sell" | "hold",
+  "confidence":       <float 0-1>,
+  "reasoning":        <string, ≤160 chars, plain text>,
+  "rejection_reason": <string if hold, else null>
 }
 
-Risk scoring guide:
-- 0-3:  Low risk. Strong signal, healthy market conditions → BUY/SELL
-- 4-6:  Medium risk. Mixed signals, proceed with caution
-- 7-10: High risk. Weak signal or adverse conditions → HOLD
+Scoring rubric (use the FULL range, do not anchor on 5):
+  0–2  Bluechip pair on a healthy L2, strong directional signal,
+       liquid venue, no flagged anomalies. → BUY or SELL.
+  3–4  Solid pair, signal is medium-strong. → BUY or SELL.
+  5–6  Mixed signal or moderate uncertainty. → BUY/SELL only with high
+       confidence; otherwise HOLD.
+  7–8  Weak signal, illiquid pair, or adverse conditions. → HOLD.
+  9–10 Unknown token, missing critical data, suspected scam. → HOLD.
 
-Always output valid JSON. Never output anything else."""
+Important rules:
+  - Treat ETH, WETH, USDC, USDT, DAI, cbBTC on Base (chain 8453) as
+    bluechip and well-known. Do NOT flag these as "unknown tokens".
+  - The signal already contains a live price quote — that is real,
+    not a missing data point.
+  - "Insufficient information" is NOT a valid reason for HOLD when the
+    pair is in the bluechip list above. Score on the directional
+    signal strength instead.
+  - Be decisive. Defaulting to HOLD because you "cannot verify" is a
+    failure mode."""
+
+
+# Bluechip token registry: chain_id → {address_lower: symbol}
+_KNOWN_TOKENS: dict[int, dict[str, str]] = {
+    8453: {  # Base
+        "0x0000000000000000000000000000000000000000": "ETH",
+        "0x4200000000000000000000000000000000000006": "WETH",
+        "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913": "USDC",
+        "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2": "USDT",
+        "0x50c5725949a6f0c72e6c4a641f24049a917db0cb": "DAI",
+        "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf": "cbBTC",
+    },
+    1: {  # Ethereum mainnet — included for completeness
+        "0x0000000000000000000000000000000000000000": "ETH",
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
+        "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
+    },
+}
+
+
+def _resolve_symbol(addr: str | None, chain_id: int) -> str:
+    """Translate a token address to its symbol if known, else short-hex."""
+    if not addr:
+        return "?"
+    a = addr.lower()
+    sym = _KNOWN_TOKENS.get(chain_id, {}).get(a)
+    if sym:
+        return sym
+    # Short hex fallback so the LLM has something readable
+    return f"{addr[:8]}…{addr[-4:]}"
 
 
 def _build_user_prompt(signal: dict[str, Any]) -> str:
-    return f"""Market Signal:
-- Token In:  {signal.get('token_in', 'ETH')}
-- Token Out: {signal.get('token_out', 'USDC')}
-- Chain:     {signal.get('chain_id', 8453)}
-- Price USD: ${signal.get('price_usd', 0):.2f}
-- Signal Strength: {signal.get('signal', 'medium')}
-- Reason: {signal.get('reason', 'No reason provided')}
+    chain_id = int(signal.get("chain_id", 8453))
+    in_sym   = _resolve_symbol(signal.get("token_in"),  chain_id)
+    out_sym  = _resolve_symbol(signal.get("token_out"), chain_id)
+    chain_lbl = {8453: "Base", 1: "Ethereum"}.get(chain_id, f"chain {chain_id}")
+    bluechip = in_sym in {"ETH", "WETH", "USDC", "USDT", "DAI", "cbBTC"} \
+           and out_sym in {"ETH", "WETH", "USDC", "USDT", "DAI", "cbBTC"}
+    bluechip_note = "Both tokens are bluechip on this venue." if bluechip else \
+                    "At least one token is non-bluechip; weight that in your score."
 
-Assess the risk and decide: buy, sell, or hold."""
+    return f"""Market signal to assess:
+
+  Pair:        {in_sym} → {out_sym}   ({chain_lbl})
+  Live price:  ${float(signal.get('price_usd', 0)):,.2f}
+  Strength:    {signal.get('signal', 'medium')}
+  Rationale:   {signal.get('reason', '(no rationale)')}
+  Size:        {signal.get('amount_in_wei', 0)} wei
+
+  Venue note:  {bluechip_note}
+
+Return the JSON risk assessment now."""
 
 
 def _parse_response(raw: str) -> dict[str, Any]:

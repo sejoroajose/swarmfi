@@ -34,11 +34,15 @@ WORKDIR /app
 #   2. gcc + python3-dev are still installed above so the 1% case (any other
 #      transitive that happens to ship a sdist) still builds cleanly.
 COPY pyproject.toml ./
+# IMPORTANT: do NOT `pip install ens` separately. The standalone `ens`
+# PyPI package is abandoned and only works with web3<4 (which would drag
+# in pysha3 → gcc dance from hell). Modern web3>=7 ships its own `ens`
+# submodule, so `from ens import ENS` works out of the box.
 RUN pip install --no-cache-dir --upgrade pip \
  && pip install --no-cache-dir \
         httpx pydantic tenacity structlog \
         fastapi "uvicorn[standard]" \
-        eth-abi eth-account "web3>=7,<8" ens
+        eth-abi eth-account "web3>=7,<8"
 
 # ── 0G sidecar (cached layer) ─────────────────────────────────────────────────
 COPY zg-sidecar/package*.json zg-sidecar/

@@ -571,9 +571,12 @@ def main() -> None:
         profiles: list[dict] = []
         for role in roles:
             try:
-                # Hard ceiling — never let one slow ENS lookup stall the poll
+                # Hard ceiling — never let one slow ENS lookup stall the poll.
+                # 1.5s matches the dashboard's polling interval; the sidecar
+                # fallback below fills any gaps instantly so the user never
+                # sees "—" in the panel just because ENS was slow.
                 profiles.append(
-                    await asyncio.wait_for(identity.get_profile(role), timeout=5.0)
+                    await asyncio.wait_for(identity.get_profile(role), timeout=1.5)
                 )
             except asyncio.TimeoutError:
                 profiles.append({
@@ -614,21 +617,33 @@ def main() -> None:
             return JSONResponse({"error": str(exc), "ranked": []}, status_code=200)
 
     # ── Swarm performance / P&L ──────────────────────────────────────────────
+    #
+    # Reads from the *cached* prices the scanner already populated on the
+    # most recent /api/scan call. Never triggers its own CoinGecko fetch —
+    # the dashboard polls /api/scan every 1.5 s anyway, so the cache is
+    # always fresh, and we get the JSON back in <10 ms instead of stalling
+    # the whole poll behind a network round-trip.
     @app.get("/api/pnl")
     async def get_pnl():
-        """
-        Roll the persisted cycle results into a notional + mark-to-market
-        P&L summary using the live scanner prices. Read by the dashboard
-        Performance panel and the chat AI.
-        """
         from core.pnl     import compute_pnl
-        from core.scanner import scan_pairs
+        from core.scanner import _price_cache  # type: ignore[attr-defined]
         try:
             view    = _read_state_file()
             results = list(view.get("results") or [])
-            scan    = await scan_pairs()
-            prices  = {s.pair.in_sym: s.price_usd for s in scan.ranked}
-            commit  = float(os.getenv("SWARMFI_COMMITMENT_ETH") or "0.0001")
+            # Map coingecko id → input symbol → current price
+            sym_for = {
+                "ethereum": "ETH",
+                "bitcoin":  "cbBTC",
+            }
+            prices: dict[str, float] = {}
+            for cg_id, info in (_price_cache or {}).items():
+                sym = sym_for.get(cg_id)
+                if sym and isinstance(info, dict) and info.get("usd"):
+                    prices[sym] = float(info["usd"])
+            # WETH tracks ETH 1:1 in USD terms for our notional purposes
+            if "ETH" in prices and "WETH" not in prices:
+                prices["WETH"] = prices["ETH"]
+            commit  = float(os.getenv("SWARMFI_COMMITMENT_ETH") or "0.005")
             summary = compute_pnl(results, prices, commitment_eth=commit)
             return JSONResponse(summary.to_dict())
         except Exception as exc:

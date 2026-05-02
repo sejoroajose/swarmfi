@@ -880,7 +880,7 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
 let chatHistory   = [];
 let pairs         = [];
 let autoCycleTimer = null;
-const COMMITMENT_ETH = 0.0001;     // matches SWARMFI_COMMITMENT_ETH default
+const COMMITMENT_ETH = 0.005;     // matches SWARMFI_COMMITMENT_ETH default
 let lastEthUsd       = 2300;       // refreshed each poll from the scan
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -1288,34 +1288,46 @@ function renderAxl(data) {
   </table>`;
 }
 
-async function poll() {
+// Independent fetch helper — each panel renders as soon as ITS endpoint
+// returns. A slow /api/pnl no longer keeps /api/state / /api/log waiting.
+async function _fetchJson(url, fallback) {
   try {
-    const [sr, lr, scn, axl, ens, pnl] = await Promise.all([
-      fetch("/api/state"), fetch("/api/log"), fetch("/api/scan"),
-      fetch("/api/axl"),   fetch("/api/agents"), fetch("/api/pnl"),
-    ]);
-    const state    = await sr.json();
-    const log      = await lr.json();
-    const scan     = await scn.json().catch(() => ({}));
-    const axlData  = await axl.json().catch(() => ({events:[]}));
-    const ensData  = await ens.json().catch(() => ({agents:[]}));
-    const pnlData  = await pnl.json().catch(() => ({}));
+    const r = await fetch(url);
+    return await r.json();
+  } catch {
+    return fallback;
+  }
+}
+
+async function poll() {
+  let scan = {};
+  let stateForResearcher = {};
+
+  // Fast endpoints (file reads) — no awaiting on slow ones
+  _fetchJson("/api/state", {}).then(state => {
+    stateForResearcher = state;
     const ctx = renderState(state);
     renderNarrator(ctx, state.in_progress);
-    renderLog(log);
-    renderScan(scan);
-    renderAxl(axlData);
-    renderEns(ensData);
-    renderPnl(pnlData);
-    renderResearcherLive(scan, state);
-
-    document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
-    document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();
     document.getElementById("footer-version").textContent =
       state.version ? `cycle #${state.version} · ${ago(state.updated_at)}` : "no cycles yet";
-  } catch (e) {
-    document.getElementById("live-txt").textContent = "Connection error";
-  }
+    // Recompute the researcher live panel after we have both scan + state
+    renderResearcherLive(scan, state);
+  });
+  _fetchJson("/api/log",   []).then(renderLog);
+  _fetchJson("/api/axl",   {events:[]}).then(renderAxl);
+  _fetchJson("/api/agents",{agents:[]}).then(renderEns);
+  _fetchJson("/api/pnl",   {}).then(renderPnl);
+
+  // Scan + state both feed the researcher live panel — render whenever
+  // either resolves, using whatever we have for the other.
+  _fetchJson("/api/scan", {}).then(s => {
+    scan = s;
+    renderScan(scan);
+    renderResearcherLive(scan, stateForResearcher);
+  });
+
+  document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
+  document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();
 }
 
 /* ───────────────────────────────────────────────────────────────────────────

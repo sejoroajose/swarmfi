@@ -70,11 +70,11 @@ class SwarmFiDemo:
         section("SwarmFi — Production Testnet Demo")
         self._print_config()
 
-        print(f"  Fetching live ETH price…", end="", flush=True)
-        price = await fetch_eth_price()
-        print(f" {h(f'${price:,.2f}', C.GREEN) if price else h('(offline — $3200)', C.YELLOW)}")
-        if not price:
-            price = 3200.0
+        # Note: skip the standalone ETH price fetch here — the multi-pair
+        # scanner that runs at the start of each cycle pulls the same data
+        # in one batched call. Calling CoinGecko twice in 1 s previously
+        # tripped the free-tier burst limit and zeroed out the next scan.
+        price = 0.0
 
         zg      = self._make("storage")
         compute = self._make("compute")
@@ -353,12 +353,51 @@ class SwarmFiDemo:
         Write a JSON sidecar with the current swarm view so the dashboard
         process (which has its own memory) can render real state and the
         chat AI can ground its replies in actual data.
+
+        Also persists the in-process AXL event list and ENS profile cache
+        so CLI cycles populate the dashboard's panels exactly like
+        in-process dashboard cycles do.
         """
         try:
             import json as _json
             from datetime import datetime, timezone
             out_dir = Path(__file__).parent / "logs"
             out_dir.mkdir(parents=True, exist_ok=True)
+
+            # Snapshot the AXL events accumulated by core.axl_bus this run
+            try:
+                from core import axl_bus
+                axl_events = axl_bus.recent_events(limit=20)
+            except Exception:
+                axl_events = []
+
+            # Snapshot every agent's ENS profile by reading the resolver's
+            # in-process caches directly. We can't await here (we're inside an
+            # async parent's sync helper), but the caches ARE sync dicts on
+            # both _MockENSResolver and _LiveENSResolver — so a direct read is
+            # safe and gives us exactly the same data /api/agents would compute.
+            agent_profiles: list[dict] = []
+            try:
+                from core.ens.resolver import AgentIdentity
+                identity = AgentIdentity.from_env()
+                resolver = identity._resolver  # type: ignore[attr-defined]
+                cache = getattr(resolver, "_records", None) or getattr(resolver, "_text_cache", {})
+                for role in ("researcher", "risk", "executor"):
+                    name = identity.name_for(role)
+                    rec  = cache.get(name, {}) if isinstance(cache, dict) else {}
+                    agent_profiles.append({
+                        "name":       name,
+                        "role":       role,
+                        "address":    None,   # the dashboard recomputes deterministically
+                        "axl_pubkey": rec.get("axl_pubkey"),
+                        "status":     rec.get("swarmfi.status"),
+                        "last":       rec.get("swarmfi.last"),
+                        "tx":         rec.get("swarmfi.tx"),
+                        "snapshot":   rec.get("swarmfi.snapshot"),
+                    })
+            except Exception:
+                agent_profiles = []
+
             view = {
                 "updated_at":     datetime.now(tz=timezone.utc).isoformat(),
                 "snapshot_root":  snapshot_root,
@@ -366,6 +405,8 @@ class SwarmFiDemo:
                 "cycles":         len(self._results),
                 "results":        self._results[-20:],
                 "pair":           self.pair,
+                "axl_events":     axl_events,
+                "agent_profiles": agent_profiles,
             }
             (out_dir / "swarmfi-state.json").write_text(_json.dumps(view, indent=2))
         except Exception:

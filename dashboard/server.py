@@ -547,9 +547,15 @@ def main() -> None:
     # ── Live AXL message stream (researcher ↔ risk ↔ executor) ──────────────
     @app.get("/api/axl")
     async def get_axl_events():
-        """Recent inter-node AXL /send events. Empty until a cycle has run."""
+        """Recent inter-node AXL /send events. Falls back to the sidecar
+        state file when this dashboard process hasn't run any cycles itself
+        (e.g. demo cycles fired from the CLI in a separate process)."""
         from core.axl_bus import recent_events
-        return JSONResponse({"events": recent_events(limit=20)})
+        events = recent_events(limit=20)
+        if not events:
+            view = _read_state_file()
+            events = view.get("axl_events") or []
+        return JSONResponse({"events": events})
 
     # ── ENS-backed agent identity profiles ──────────────────────────────────
     #
@@ -562,7 +568,7 @@ def main() -> None:
         from core.ens.resolver import AgentIdentity
         identity = AgentIdentity.from_env()
         roles = ["researcher", "risk", "executor"]
-        profiles = []
+        profiles: list[dict] = []
         for role in roles:
             try:
                 profiles.append(await identity.get_profile(role))
@@ -572,6 +578,19 @@ def main() -> None:
                     "role":    role,
                     "error":   str(exc)[:120],
                 })
+
+        # If our in-process caches are empty (e.g. cycles fired from the CLI
+        # in a separate process), fall back to whatever the state-file view
+        # has captured. Per-field merge so live values always win when set.
+        view = _read_state_file()
+        sidecar = view.get("agent_profiles") or []
+        if sidecar:
+            by_role = {p.get("role"): p for p in sidecar}
+            for p in profiles:
+                fallback = by_role.get(p.get("role")) or {}
+                for k in ("status", "last", "tx", "snapshot", "axl_pubkey"):
+                    if not p.get(k) and fallback.get(k):
+                        p[k] = fallback[k]
         return JSONResponse({"agents": profiles})
 
     # ── Multi-pair scanner ────────────────────────────────────────────────────

@@ -15,6 +15,7 @@ FROM python:3.12-slim AS base
 # Node.js 20 for the 0G sidecar
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates gnupg \
+        gcc g++ make python3-dev \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
         | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -26,10 +27,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # ── Python deps (cached layer) ────────────────────────────────────────────────
+#
+# Belt-and-suspenders against the pysha3-needs-gcc trap:
+#   1. `web3>=7,<8` → modern web3 dropped pysha3 in favour of pycryptodome,
+#      so 99% of the time no C compiler is needed at all.
+#   2. gcc + python3-dev are still installed above so the 1% case (any other
+#      transitive that happens to ship a sdist) still builds cleanly.
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir \
-        httpx pydantic tenacity structlog fastapi "uvicorn[standard]" \
-        eth-abi eth-account "web3<7" ens
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir \
+        httpx pydantic tenacity structlog \
+        fastapi "uvicorn[standard]" \
+        eth-abi eth-account "web3>=7,<8" ens
 
 # ── 0G sidecar (cached layer) ─────────────────────────────────────────────────
 COPY zg-sidecar/package*.json zg-sidecar/

@@ -571,7 +571,16 @@ def main() -> None:
         profiles: list[dict] = []
         for role in roles:
             try:
-                profiles.append(await identity.get_profile(role))
+                # Hard ceiling — never let one slow ENS lookup stall the poll
+                profiles.append(
+                    await asyncio.wait_for(identity.get_profile(role), timeout=5.0)
+                )
+            except asyncio.TimeoutError:
+                profiles.append({
+                    "name":    f"{role}.swarmfi.eth",
+                    "role":    role,
+                    "status":  None,  # populated by sidecar fallback below
+                })
             except Exception as exc:
                 profiles.append({
                     "name":    f"{role}.swarmfi.eth",
@@ -603,6 +612,27 @@ def main() -> None:
             return JSONResponse(result.to_dict())
         except Exception as exc:
             return JSONResponse({"error": str(exc), "ranked": []}, status_code=200)
+
+    # ── Swarm performance / P&L ──────────────────────────────────────────────
+    @app.get("/api/pnl")
+    async def get_pnl():
+        """
+        Roll the persisted cycle results into a notional + mark-to-market
+        P&L summary using the live scanner prices. Read by the dashboard
+        Performance panel and the chat AI.
+        """
+        from core.pnl     import compute_pnl
+        from core.scanner import scan_pairs
+        try:
+            view    = _read_state_file()
+            results = list(view.get("results") or [])
+            scan    = await scan_pairs()
+            prices  = {s.pair.in_sym: s.price_usd for s in scan.ranked}
+            commit  = float(os.getenv("SWARMFI_COMMITMENT_ETH") or "0.0001")
+            summary = compute_pnl(results, prices, commitment_eth=commit)
+            return JSONResponse(summary.to_dict())
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=200)
 
     # ── App ───────────────────────────────────────────────────────────────────
     port = int(os.getenv("DASHBOARD_PORT", "8080"))

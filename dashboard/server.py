@@ -236,25 +236,26 @@ async def _build_swarm_context() -> str:
     except Exception:
         state, log = {}, []
 
-    # Live multi-pair scanner — this is what gives the AI access to fresh
-    # prices, 24h momentum, and the current best opportunity. Without this
-    # the chat agent only sees the *last completed cycle* which can be many
-    # minutes stale and reads as broken to the user.
+    # Live multi-pair scanner — read from the in-memory price cache rather
+    # than triggering a fresh CoinGecko round-trip on every chat message.
+    # The dashboard polls /api/scan every 1.5s anyway, so the cache is
+    # fresh; the chat AI gets the same prices the user sees in the panel
+    # without paying any latency cost.
     scan_block: list[str] = []
     try:
-        from core.scanner import scan_pairs
-        scan = await scan_pairs()
-        if scan and scan.ranked:
-            scan_block.append("LIVE MARKET SCAN (regenerated this request, all Base bluechips):")
-            for s in scan.ranked:
-                star = " ★ best" if s is scan.best else ""
-                scan_block.append(
-                    f"  - {s.pair.label:<14}"
-                    f"price=${s.price_usd:>10,.2f}  "
-                    f"24h={s.momentum_24h:+.2f}%  "
-                    f"edge={s.composite:.2f}  "
-                    f"signal={s.signal}{star}"
-                )
+        from core.scanner import _price_cache, PAIRS  # type: ignore[attr-defined]
+        if _price_cache:
+            scan_block.append("LIVE MARKET SCAN (Base bluechips, current prices):")
+            for p in PAIRS:
+                info  = _price_cache.get(p.coingecko_id, {}) or {}
+                price = float(info.get("usd") or 0.0)
+                mom   = float(info.get("usd_24h_change") or 0.0)
+                if price > 0:
+                    scan_block.append(
+                        f"  - {p.label:<14}"
+                        f"price=${price:>10,.2f}  "
+                        f"24h={mom:+.2f}%"
+                    )
     except Exception:
         pass
 

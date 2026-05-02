@@ -882,6 +882,7 @@ let pairs         = [];
 let autoCycleTimer = null;
 const COMMITMENT_ETH = 0.005;     // matches SWARMFI_COMMITMENT_ETH default
 let lastEthUsd       = 2300;       // refreshed each poll from the scan
+let chatInFlight     = false;      // pauses polling while /api/chat is awaiting LLM
 
 /* ───────────────────────────────────────────────────────────────────────────
    INIT
@@ -1300,6 +1301,11 @@ async function _fetchJson(url, fallback) {
 }
 
 async function poll() {
+  // Pause polling while a chat is awaiting the LLM response — browsers
+  // cap at ~6 concurrent connections per origin and we don't want the
+  // chat reply to queue behind 5 dashboard fetches.
+  if (chatInFlight) return;
+
   let scan = {};
   let stateForResearcher = {};
 
@@ -1425,6 +1431,10 @@ async function sendChat() {
   chatHistory.push({ role: "user", content: text });
   const typing = appendMsg("ai", "", true);
 
+  // Block dashboard polling for the duration of this LLM call so the
+  // chat reply isn't queued behind 5 concurrent panel fetches.
+  chatInFlight = true;
+
   try {
     const r = await fetch("/api/chat", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -1439,6 +1449,7 @@ async function sendChat() {
     typing.remove();
     appendMsg("ai", "Connection error: " + e.message);
   } finally {
+    chatInFlight = false;
     btn.disabled = false; inp.focus();
   }
 }

@@ -195,11 +195,46 @@ _COINGECKO_URL  = "https://api.coingecko.com/api/v3/simple/price"
 _CACHE_TTL_SECS = 30  # one fetch every 30s is well under any free-tier cap
 
 import asyncio as _asyncio
+import json as _json
 import time as _time
+from pathlib import Path as _Path
+
+# Persist the cache to disk so a fresh process doesn't have to round-trip
+# CoinGecko on first scan (the free tier 429s on burst — bad UX).
+_CACHE_FILE = _Path(__file__).resolve().parent.parent / "logs" / "coingecko-cache.json"
 
 _price_cache: dict[str, dict[str, float]] = {}
 _price_cache_at: float = 0.0
 _price_lock = _asyncio.Lock()
+
+
+def _load_disk_cache() -> None:
+    """Hydrate the in-memory cache from disk on first call."""
+    global _price_cache, _price_cache_at
+    if _price_cache:
+        return  # already populated this process
+    try:
+        if _CACHE_FILE.exists():
+            data = _json.loads(_CACHE_FILE.read_text())
+            _price_cache = data.get("cache") or {}
+            # Treat the disk read as "now-ish" — even minutes-old prices are
+            # better than $0.00 across the dashboard. The 30s TTL still
+            # triggers a refresh on the next scan.
+            _price_cache_at = float(data.get("at") or 0.0)
+    except Exception:
+        pass
+
+
+def _save_disk_cache() -> None:
+    """Persist the in-memory cache after a successful fetch."""
+    try:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_FILE.write_text(_json.dumps({
+            "cache": _price_cache,
+            "at":    _price_cache_at,
+        }))
+    except Exception:
+        pass
 
 
 async def _fetch_prices(coingecko_ids: list[str]) -> dict[str, dict[str, float]]:
@@ -210,6 +245,9 @@ async def _fetch_prices(coingecko_ids: list[str]) -> dict[str, dict[str, float]]
     """
     global _price_cache, _price_cache_at
     import httpx
+
+    # Hydrate from disk on first call so a fresh process has prices
+    _load_disk_cache()
 
     now = _time.time()
     # Serve from cache if fresh AND covers every requested ID
@@ -238,6 +276,7 @@ async def _fetch_prices(coingecko_ids: list[str]) -> dict[str, dict[str, float]]
                     if fresh:
                         _price_cache.update(fresh)
                         _price_cache_at = now
+                        _save_disk_cache()
                         return {i: _price_cache.get(i, {}) for i in coingecko_ids}
                 else:
                     log.warning("CoinGecko non-200", status=r.status_code)

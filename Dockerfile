@@ -26,10 +26,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # ── Python deps (cached layer) ────────────────────────────────────────────────
+#
+# Using the modern web3 line (>=7) so we don't drag in pysha3 (which needs gcc
+# to compile from source — pointless for our use case where we only need
+# eth_abi.decode + ENS name resolution). pyproject.toml is intentionally NOT
+# `pip install`ed because it would pull web3<7 transitively. We pin the slim
+# runtime list explicitly here.
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir \
-        httpx pydantic tenacity structlog fastapi "uvicorn[standard]" \
-        eth-abi eth-account "web3<7" ens
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir \
+        httpx pydantic tenacity structlog \
+        fastapi "uvicorn[standard]" \
+        eth-abi eth-account "web3>=7,<8" ens
 
 # ── 0G sidecar (cached layer) ─────────────────────────────────────────────────
 COPY zg-sidecar/package*.json zg-sidecar/

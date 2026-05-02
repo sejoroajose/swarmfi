@@ -70,6 +70,12 @@ class _LiveENSResolver:
         # only when an on-chain `setText` is actually attempted. Lets the swarm
         # update agent profiles cheaply without paying gas every cycle.
         self._text_cache: dict[str, dict[str, str]] = {}
+        # Address cache — resolved once per (name) per process. ENS addresses
+        # only change when an owner explicitly migrates them; for a hackathon
+        # demo lifetime "once is forever" is correct. Crucial for performance:
+        # without this every /api/agents call would block the FastAPI event
+        # loop on a synchronous web3 RPC round-trip and stall every endpoint.
+        self._addr_cache: dict[str, str | None] = {}
 
     def _cache_text(self, name: str, key: str, value: str) -> None:
         self._text_cache.setdefault(name, {})[key] = value
@@ -83,12 +89,23 @@ class _LiveENSResolver:
         return self._ns
 
     async def resolve_address(self, name: str) -> str | None:
+        # Hit the cache first — addresses are effectively immutable for our
+        # purposes and the dashboard polls every 1.5 s.
+        if name in self._addr_cache:
+            return self._addr_cache[name]
         try:
+            # web3 calls are synchronous and would freeze the FastAPI event
+            # loop. Off-thread the blocking work.
+            import asyncio
             ns = self._get_ns()
-            addr = ns.address(name)
-            return str(addr) if addr else None
+            addr = await asyncio.to_thread(ns.address, name)
+            result = str(addr) if addr else None
+            self._addr_cache[name] = result
+            return result
         except Exception as exc:
             log.warning("ENS resolve failed", name=name, error=str(exc))
+            # Cache None too so we don't keep retrying broken names every poll.
+            self._addr_cache[name] = None
             return None
 
     async def get_text_record(self, name: str, key: str) -> str | None:
@@ -98,8 +115,13 @@ class _LiveENSResolver:
         if cached is not None:
             return cached
         try:
+            import asyncio
             ns = self._get_ns()
-            return ns.get_text(name, key)
+            value = await asyncio.to_thread(ns.get_text, name, key)
+            if value:
+                # Backfill the cache so subsequent polls don't hit the RPC.
+                self._text_cache.setdefault(name, {})[key] = value
+            return value
         except Exception as exc:
             log.warning("ENS text record fetch failed", name=name, key=key, error=str(exc))
             return None

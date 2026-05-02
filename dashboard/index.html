@@ -584,8 +584,12 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
         <span class="stat-v coral" id="hs-pnl-committed">—</span>
       </div>
       <div class="stat">
-        <span class="stat-k tip" data-tip="Notional value of the swaps the swarm ranked at entry — i.e. the $ size of opportunities the swarm acted on, if commitments were full swaps.">Notional value</span>
-        <span class="stat-v green" id="hs-pnl-notional">—</span>
+        <span class="stat-k tip" data-tip="Mark-to-market P&L: where the swarm's picks would be now if every approved cycle had been a full-size swap. Computed against live prices on every poll.">Notional P&L</span>
+        <span class="stat-v" id="hs-pnl">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-k tip" data-tip="Percent of approved cycles where the price moved in the direction the swarm predicted (up for BUY, down for SELL).">Win rate</span>
+        <span class="stat-v" id="hs-winrate">—</span>
       </div>
       <div class="stat">
         <span class="stat-k tip" data-tip="Latest decision from the risk agent">Last action</span>
@@ -732,6 +736,9 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
           <label class="auto-toggle tip" data-tip="Run a cycle automatically every minute. Each cycle costs ~0.0001 ETH on the keeper wallet.">
             <input type="checkbox" id="auto-cycle"><span>Auto-cycle every 60s</span>
           </label>
+          <label class="auto-toggle tip" data-tip="Skip cycles where the best pair's composite edge is below 0.80. Saves keeper ETH on weak signals.">
+            <input type="checkbox" id="smart-cycle" checked><span>Smart edge gate (≥ 0.80)</span>
+          </label>
           <button class="btn btn-primary" id="fire-btn" onclick="fireTrade()">▶ Run a cycle</button>
         </div>
       </div>
@@ -873,8 +880,9 @@ footer .mono{font-family:var(--mono);font-size:11px;color:var(--faint)}
 let chatHistory   = [];
 let pairs         = [];
 let autoCycleTimer = null;
-const COMMITMENT_ETH = 0.0001;     // matches SWARMFI_COMMITMENT_ETH default
+const COMMITMENT_ETH = 0.005;     // matches SWARMFI_COMMITMENT_ETH default
 let lastEthUsd       = 2300;       // refreshed each poll from the scan
+let chatInFlight     = false;      // pauses polling while /api/chat is awaiting LLM
 
 /* ───────────────────────────────────────────────────────────────────────────
    INIT
@@ -1036,17 +1044,11 @@ function renderState(state) {
   const cyc = state.version || 0;
   document.getElementById("hs-cycle").textContent = cyc ? cyc.toString() : "—";
 
-  // Notional P&L summary — cumulative committed ETH × current ETH/USD
+  // Cumulative ETH committed on-chain
   const committedEth = (cyc * COMMITMENT_ETH);
   document.getElementById("hs-pnl-committed").textContent =
     cyc ? `${committedEth.toFixed(4)} ETH · $${(committedEth * lastEthUsd).toFixed(2)}` : "—";
-
-  // Notional value = SUM of (the size each cycle would have swapped, scaled by entry price)
-  // We approximate from the user's current trade-amount × cycles × entry price.
-  const tradeEth = parseFloat(document.getElementById("amount-eth")?.value || "0.001");
-  const notional = cyc * tradeEth * lastEthUsd;
-  document.getElementById("hs-pnl-notional").textContent =
-    cyc ? `$${notional.toFixed(2)} (${(cyc * tradeEth).toFixed(3)} ETH @ entry)` : "—";
+  // P&L + win rate hero stats are populated by renderPnl() against /api/pnl
 
   document.getElementById("hs-action").textContent = (rk.last_action || "—").toUpperCase();
   const hsTx = document.getElementById("hs-tx");
@@ -1189,6 +1191,45 @@ function renderScan(scan) {
   </table>`;
 }
 
+function renderPnl(data) {
+  if (!data || data.error) return;
+  const pnlEl = document.getElementById("hs-pnl");
+  const wrEl  = document.getElementById("hs-winrate");
+  if (!pnlEl || !wrEl) return;
+
+  const cycles = data.cycles_approved || 0;
+  if (!cycles) {
+    pnlEl.textContent = "—";
+    wrEl.textContent  = "—";
+    return;
+  }
+  const usd = data.net_pnl_usd || 0;
+  const pct = data.net_pnl_pct || 0;
+  const sign = usd >= 0 ? "+" : "−";
+  pnlEl.innerHTML = `<span style="color:${usd >= 0 ? 'var(--green)' : 'var(--rose)'}">${sign}$${Math.abs(usd).toFixed(2)} (${sign}${Math.abs(pct).toFixed(2)}%)</span>`;
+  wrEl.textContent  = `${data.cycles_won}/${cycles} · ${data.win_rate_pct.toFixed(0)}%`;
+}
+
+function renderResearcherLive(scan, state) {
+  // When the swarm isn't actively in a cycle, surface the continuous scan as
+  // researcher activity — it really is running every poll.
+  const card  = document.querySelector('.agent-card[data-role="researcher"]');
+  const badge = document.getElementById("b-researcher");
+  if (!card || !badge) return;
+  const inCycle = state && state.in_progress && state.in_progress.stage;
+  if (inCycle || !scan || !scan.ranked || !scan.ranked.length) return;
+
+  badge.textContent = "live";
+  badge.classList.add("badge-active");
+  card.dataset.active = "true";
+  const pairEl = document.getElementById("r-pair");
+  const priceEl = document.getElementById("r-price");
+  const strEl = document.getElementById("r-strength");
+  if (pairEl  && scan.best) pairEl.textContent  = scan.best.label;
+  if (priceEl && scan.best) priceEl.textContent = `$${(scan.best.price_usd || 0).toFixed(2)} · top edge ${scan.best.composite.toFixed(2)}`;
+  if (strEl)               strEl.textContent  = `watching ${scan.ranked.length} pairs`;
+}
+
 function renderEns(data) {
   const root = document.getElementById("ens-table");
   if (!root) return;
@@ -1248,31 +1289,51 @@ function renderAxl(data) {
   </table>`;
 }
 
-async function poll() {
+// Independent fetch helper — each panel renders as soon as ITS endpoint
+// returns. A slow /api/pnl no longer keeps /api/state / /api/log waiting.
+async function _fetchJson(url, fallback) {
   try {
-    const [sr, lr, scn, axl, ens] = await Promise.all([
-      fetch("/api/state"), fetch("/api/log"), fetch("/api/scan"),
-      fetch("/api/axl"),   fetch("/api/agents"),
-    ]);
-    const state    = await sr.json();
-    const log      = await lr.json();
-    const scan     = await scn.json().catch(() => ({}));
-    const axlData  = await axl.json().catch(() => ({events:[]}));
-    const ensData  = await ens.json().catch(() => ({agents:[]}));
+    const r = await fetch(url);
+    return await r.json();
+  } catch {
+    return fallback;
+  }
+}
+
+async function poll() {
+  // Pause polling while a chat is awaiting the LLM response — browsers
+  // cap at ~6 concurrent connections per origin and we don't want the
+  // chat reply to queue behind 5 dashboard fetches.
+  if (chatInFlight) return;
+
+  let scan = {};
+  let stateForResearcher = {};
+
+  // Fast endpoints (file reads) — no awaiting on slow ones
+  _fetchJson("/api/state", {}).then(state => {
+    stateForResearcher = state;
     const ctx = renderState(state);
     renderNarrator(ctx, state.in_progress);
-    renderLog(log);
-    renderScan(scan);
-    renderAxl(axlData);
-    renderEns(ensData);
-
-    document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
-    document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();
     document.getElementById("footer-version").textContent =
       state.version ? `cycle #${state.version} · ${ago(state.updated_at)}` : "no cycles yet";
-  } catch (e) {
-    document.getElementById("live-txt").textContent = "Connection error";
-  }
+    // Recompute the researcher live panel after we have both scan + state
+    renderResearcherLive(scan, state);
+  });
+  _fetchJson("/api/log",   []).then(renderLog);
+  _fetchJson("/api/axl",   {events:[]}).then(renderAxl);
+  _fetchJson("/api/agents",{agents:[]}).then(renderEns);
+  _fetchJson("/api/pnl",   {}).then(renderPnl);
+
+  // Scan + state both feed the researcher live panel — render whenever
+  // either resolves, using whatever we have for the other.
+  _fetchJson("/api/scan", {}).then(s => {
+    scan = s;
+    renderScan(scan);
+    renderResearcherLive(scan, stateForResearcher);
+  });
+
+  document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
+  document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();
 }
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -1291,6 +1352,23 @@ async function fireTrade() {
 
   await fetch("/api/config", { method: "POST", headers: {"Content-Type":"application/json"},
     body: JSON.stringify({ risk_threshold: thresh }) });
+
+  // Smart edge gate — skip cycles where the top composite edge is below
+  // 0.80, but only when auto-cycle is on (manual click is intentional).
+  const smart = document.getElementById("smart-cycle")?.checked;
+  const auto  = document.getElementById("auto-cycle")?.checked;
+  if (smart && auto) {
+    try {
+      const scn = await fetch("/api/scan").then(r => r.json()).catch(() => null);
+      const top = scn && scn.best && scn.best.composite;
+      if (top != null && top < 0.80) {
+        status.style.color = "var(--muted)";
+        status.textContent = `⏸ Skipped — top edge ${top.toFixed(2)} below 0.80 gate`;
+        setTimeout(() => { status.textContent = ""; }, 5000);
+        return;
+      }
+    } catch(_){}
+  }
 
   btn.disabled = true; btn.textContent = "⏳ Running…";
   status.textContent = "Researcher → Risk → Executor…";
@@ -1353,6 +1431,10 @@ async function sendChat() {
   chatHistory.push({ role: "user", content: text });
   const typing = appendMsg("ai", "", true);
 
+  // Block dashboard polling for the duration of this LLM call so the
+  // chat reply isn't queued behind 5 concurrent panel fetches.
+  chatInFlight = true;
+
   try {
     const r = await fetch("/api/chat", {
       method: "POST", headers: {"Content-Type":"application/json"},
@@ -1367,6 +1449,7 @@ async function sendChat() {
     typing.remove();
     appendMsg("ai", "Connection error: " + e.message);
   } finally {
+    chatInFlight = false;
     btn.disabled = false; inp.focus();
   }
 }

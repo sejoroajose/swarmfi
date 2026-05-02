@@ -236,25 +236,26 @@ async def _build_swarm_context() -> str:
     except Exception:
         state, log = {}, []
 
-    # Live multi-pair scanner — this is what gives the AI access to fresh
-    # prices, 24h momentum, and the current best opportunity. Without this
-    # the chat agent only sees the *last completed cycle* which can be many
-    # minutes stale and reads as broken to the user.
+    # Live multi-pair scanner — read from the in-memory price cache rather
+    # than triggering a fresh CoinGecko round-trip on every chat message.
+    # The dashboard polls /api/scan every 1.5s anyway, so the cache is
+    # fresh; the chat AI gets the same prices the user sees in the panel
+    # without paying any latency cost.
     scan_block: list[str] = []
     try:
-        from core.scanner import scan_pairs
-        scan = await scan_pairs()
-        if scan and scan.ranked:
-            scan_block.append("LIVE MARKET SCAN (regenerated this request, all Base bluechips):")
-            for s in scan.ranked:
-                star = " ★ best" if s is scan.best else ""
-                scan_block.append(
-                    f"  - {s.pair.label:<14}"
-                    f"price=${s.price_usd:>10,.2f}  "
-                    f"24h={s.momentum_24h:+.2f}%  "
-                    f"edge={s.composite:.2f}  "
-                    f"signal={s.signal}{star}"
-                )
+        from core.scanner import _price_cache, PAIRS  # type: ignore[attr-defined]
+        if _price_cache:
+            scan_block.append("LIVE MARKET SCAN (Base bluechips, current prices):")
+            for p in PAIRS:
+                info  = _price_cache.get(p.coingecko_id, {}) or {}
+                price = float(info.get("usd") or 0.0)
+                mom   = float(info.get("usd_24h_change") or 0.0)
+                if price > 0:
+                    scan_block.append(
+                        f"  - {p.label:<14}"
+                        f"price=${price:>10,.2f}  "
+                        f"24h={mom:+.2f}%"
+                    )
     except Exception:
         pass
 
@@ -547,9 +548,15 @@ def main() -> None:
     # ── Live AXL message stream (researcher ↔ risk ↔ executor) ──────────────
     @app.get("/api/axl")
     async def get_axl_events():
-        """Recent inter-node AXL /send events. Empty until a cycle has run."""
+        """Recent inter-node AXL /send events. Falls back to the sidecar
+        state file when this dashboard process hasn't run any cycles itself
+        (e.g. demo cycles fired from the CLI in a separate process)."""
         from core.axl_bus import recent_events
-        return JSONResponse({"events": recent_events(limit=20)})
+        events = recent_events(limit=20)
+        if not events:
+            view = _read_state_file()
+            events = view.get("axl_events") or []
+        return JSONResponse({"events": events})
 
     # ── ENS-backed agent identity profiles ──────────────────────────────────
     #
@@ -562,16 +569,41 @@ def main() -> None:
         from core.ens.resolver import AgentIdentity
         identity = AgentIdentity.from_env()
         roles = ["researcher", "risk", "executor"]
-        profiles = []
+        profiles: list[dict] = []
         for role in roles:
             try:
-                profiles.append(await identity.get_profile(role))
+                # Hard ceiling — never let one slow ENS lookup stall the poll.
+                # 1.5s matches the dashboard's polling interval; the sidecar
+                # fallback below fills any gaps instantly so the user never
+                # sees "—" in the panel just because ENS was slow.
+                profiles.append(
+                    await asyncio.wait_for(identity.get_profile(role), timeout=1.5)
+                )
+            except asyncio.TimeoutError:
+                profiles.append({
+                    "name":    f"{role}.swarmfi.eth",
+                    "role":    role,
+                    "status":  None,  # populated by sidecar fallback below
+                })
             except Exception as exc:
                 profiles.append({
                     "name":    f"{role}.swarmfi.eth",
                     "role":    role,
                     "error":   str(exc)[:120],
                 })
+
+        # If our in-process caches are empty (e.g. cycles fired from the CLI
+        # in a separate process), fall back to whatever the state-file view
+        # has captured. Per-field merge so live values always win when set.
+        view = _read_state_file()
+        sidecar = view.get("agent_profiles") or []
+        if sidecar:
+            by_role = {p.get("role"): p for p in sidecar}
+            for p in profiles:
+                fallback = by_role.get(p.get("role")) or {}
+                for k in ("status", "last", "tx", "snapshot", "axl_pubkey"):
+                    if not p.get(k) and fallback.get(k):
+                        p[k] = fallback[k]
         return JSONResponse({"agents": profiles})
 
     # ── Multi-pair scanner ────────────────────────────────────────────────────
@@ -584,6 +616,39 @@ def main() -> None:
             return JSONResponse(result.to_dict())
         except Exception as exc:
             return JSONResponse({"error": str(exc), "ranked": []}, status_code=200)
+
+    # ── Swarm performance / P&L ──────────────────────────────────────────────
+    #
+    # Reads from the *cached* prices the scanner already populated on the
+    # most recent /api/scan call. Never triggers its own CoinGecko fetch —
+    # the dashboard polls /api/scan every 1.5 s anyway, so the cache is
+    # always fresh, and we get the JSON back in <10 ms instead of stalling
+    # the whole poll behind a network round-trip.
+    @app.get("/api/pnl")
+    async def get_pnl():
+        from core.pnl     import compute_pnl
+        from core.scanner import _price_cache  # type: ignore[attr-defined]
+        try:
+            view    = _read_state_file()
+            results = list(view.get("results") or [])
+            # Map coingecko id → input symbol → current price
+            sym_for = {
+                "ethereum": "ETH",
+                "bitcoin":  "cbBTC",
+            }
+            prices: dict[str, float] = {}
+            for cg_id, info in (_price_cache or {}).items():
+                sym = sym_for.get(cg_id)
+                if sym and isinstance(info, dict) and info.get("usd"):
+                    prices[sym] = float(info["usd"])
+            # WETH tracks ETH 1:1 in USD terms for our notional purposes
+            if "ETH" in prices and "WETH" not in prices:
+                prices["WETH"] = prices["ETH"]
+            commit  = float(os.getenv("SWARMFI_COMMITMENT_ETH") or "0.005")
+            summary = compute_pnl(results, prices, commitment_eth=commit)
+            return JSONResponse(summary.to_dict())
+        except Exception as exc:
+            return JSONResponse({"error": str(exc)}, status_code=200)
 
     # ── App ───────────────────────────────────────────────────────────────────
     port = int(os.getenv("DASHBOARD_PORT", "8080"))

@@ -2,12 +2,15 @@
 
 ## Pre-flight checklist (do BEFORE recording)
 
-- [ ] Run `./start.sh --live` and let it complete one warm-up cycle so CoinGecko cache is populated → real prices show in the scan, not $0.00
+- [ ] **Warm the price cache**: run `./start.sh --live` once and let one full cycle complete. The disk cache (`logs/coingecko-cache.json`) now persists prices across restarts, so subsequent runs show real prices immediately instead of $0.00.
 - [ ] Confirm the dashboard's hero stats show a recent cycle with real risk score + real tx hash
-- [ ] Open three browser tabs ahead of time:
-  1. `http://127.0.0.1:8080` (the dashboard)
+- [ ] Confirm the **Agent identities · ENS profiles** panel shows real values (status, last, tx, snapshot) for all three agents — not just the role label
+- [ ] Confirm the **AXL peer-to-peer messages** panel shows three rows from the last cycle (researcher → risk → executor → researcher)
+- [ ] Open four browser tabs ahead of time:
+  1. `http://127.0.0.1:8080` — or your live Coolify URL (`https://swarmfi.<your-domain>`)
   2. `https://sepolia.etherscan.io/address/<KH_KEEPER_ADDRESS>` (proof of commitments)
   3. `https://chainscan-galileo.0g.ai/address/<ZG_WALLET>` (proof of snapshots)
+  4. `https://sepolia.app.ens.domains/researcher.swarmfi.eth` (proof that ENS records are real, on-chain, and yours)
 - [ ] Record voiceover separately (phone is fine), mix in Audacity or DaVinci Resolve
 - [ ] Resolution: 1920×1080 @ 30fps. Recorder: OBS Studio (free)
 
@@ -60,15 +63,19 @@ Risk dial smoothly tweens to 2.0.
 
 ---
 
-### [2:00 – 2:30] 0G Storage proof + ENS identity
+### [2:00 – 2:30] 0G Storage proof + ENS identity + AXL P2P
 
 > *"Every cycle — every signal, every decision, every tx — is committed to **0G Storage** as one verifiable snapshot."*
 
 **Visual:** click the **0G snapshot** pill in the header. Chainscan Galileo loads — the registered flow tx.
 
-> *"Each agent has its own **ENS identity**. researcher.swarmfi.eth. risk.swarmfi.eth. executor.swarmfi.eth. The dashboard never hardcodes addresses — every agent's metadata is resolved through ENS at runtime, with text records that update every cycle."*
+> *"Each agent has its own **ENS identity** on Sepolia. researcher.swarmfi.eth. risk.swarmfi.eth. executor.swarmfi.eth. The dashboard never hardcodes addresses — every agent's role, status, latest decision, tx hash, and snapshot root is resolved through real ENS text records."*
 
-**Visual:** scroll to **Agent identities · ENS profiles** panel. Show the resolved addresses + the live `swarmfi.last`, `swarmfi.tx`, `swarmfi.snapshot` records.
+**Visual:** scroll to **Agent identities · ENS profiles** panel. Cursor highlights the live `swarmfi.last` and `swarmfi.tx` rows. Optionally, briefly cut to the Sepolia ENS app tab showing the same records on-chain.
+
+> *"And the agents talk to each other peer-to-peer over **Gensyn AXL** — encrypted, no central broker."*
+
+**Visual:** scroll to **AXL peer-to-peer messages** panel. Show the three rows from the latest cycle.
 
 ---
 

@@ -43,6 +43,8 @@ RUN pip install --no-cache-dir --upgrade pip \
         httpx pydantic tenacity structlog \
         fastapi "uvicorn[standard]" \
         eth-abi eth-account "web3>=7,<8"
+        
+RUN apt-get update && apt-get install -y jq
 
 # ── 0G sidecar (cached layer) ─────────────────────────────────────────────────
 COPY zg-sidecar/package*.json zg-sidecar/

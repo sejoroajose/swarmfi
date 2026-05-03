@@ -1249,22 +1249,25 @@ function renderAxl(data) {
 }
 
 async function poll() {
+  // Single combined endpoint — server runs all sub-fetches in parallel and
+  // returns one payload. Cuts dashboard request volume from 6/poll to 1/poll
+  // (~4 req/s → ~0.7 req/s) so the chat endpoint never has to fight for a
+  // browser connection slot, and slow ENS lookups can't queue other panels.
+  if (typeof chatInFlight !== "undefined" && chatInFlight) return;
   try {
-    const [sr, lr, scn, axl, ens] = await Promise.all([
-      fetch("/api/state"), fetch("/api/log"), fetch("/api/scan"),
-      fetch("/api/axl"),   fetch("/api/agents"),
-    ]);
-    const state    = await sr.json();
-    const log      = await lr.json();
-    const scan     = await scn.json().catch(() => ({}));
-    const axlData  = await axl.json().catch(() => ({events:[]}));
-    const ensData  = await ens.json().catch(() => ({agents:[]}));
+    const r = await fetch("/api/dashboard");
+    if (!r.ok) throw new Error("dashboard " + r.status);
+    const data = await r.json();
+
+    const state = data.state || {};
     const ctx = renderState(state);
     renderNarrator(ctx, state.in_progress);
-    renderLog(log);
-    renderScan(scan);
-    renderAxl(axlData);
-    renderEns(ensData);
+    renderLog(data.log || []);
+    renderScan(data.scan || {});
+    renderAxl(data.axl || {events:[]});
+    renderEns({ agents: data.agents || [] });
+    if (typeof renderPnl === "function") renderPnl(data.pnl || {});
+    if (typeof renderResearcherLive === "function") renderResearcherLive(data.scan || {}, state);
 
     document.getElementById("live-txt").textContent = "Live · " + new Date().toLocaleTimeString();
     document.getElementById("log-update").textContent = "Updated " + new Date().toLocaleTimeString();

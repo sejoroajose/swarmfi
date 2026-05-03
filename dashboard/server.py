@@ -585,6 +585,95 @@ def main() -> None:
         except Exception as exc:
             return JSONResponse({"error": str(exc), "ranked": []}, status_code=200)
 
+    # ── Combined dashboard endpoint ──────────────────────────────────────────
+    #
+    # Polling six independent endpoints every 1.5 s used to fire ~4 req/s
+    # at the browser, eating connection-slot budget and starving the chat
+    # endpoint when it was waiting on the LLM. This one endpoint runs all
+    # sub-fetches concurrently in-process via asyncio.gather and returns
+    # everything in one payload.
+    @app.get("/api/dashboard")
+    async def get_dashboard():
+        from core.scanner    import scan_pairs, _price_cache  # type: ignore[attr-defined]
+        from core.pnl        import compute_pnl
+        from core.axl_bus    import recent_events
+        from core.ens.resolver import AgentIdentity
+
+        async def _state():
+            return await _get_zg_state()
+
+        async def _log():
+            return await _get_zg_log(limit=30)
+
+        async def _scan():
+            try:
+                return (await scan_pairs()).to_dict()
+            except Exception as exc:
+                return {"error": str(exc), "ranked": []}
+
+        async def _agents():
+            identity = AgentIdentity.from_env()
+            profiles: list[dict] = []
+            for role in ("researcher", "risk", "executor"):
+                try:
+                    profiles.append(
+                        await asyncio.wait_for(identity.get_profile(role), timeout=1.5)
+                    )
+                except Exception:
+                    profiles.append({
+                        "name": f"{role}.swarmfi.eth",
+                        "role": role,
+                    })
+            view = _read_state_file()
+            sidecar = view.get("agent_profiles") or []
+            if sidecar:
+                by_role = {p.get("role"): p for p in sidecar}
+                for p in profiles:
+                    fb = by_role.get(p.get("role")) or {}
+                    for k in ("status", "last", "tx", "snapshot", "axl_pubkey"):
+                        if not p.get(k) and fb.get(k):
+                            p[k] = fb[k]
+            return {"agents": profiles}
+
+        # AXL + PnL are sync work over already-cached data — no point gathering
+        def _axl():
+            events = recent_events(limit=20)
+            if not events:
+                view = _read_state_file()
+                events = view.get("axl_events") or []
+            return {"events": events}
+
+        def _pnl():
+            try:
+                view = _read_state_file()
+                results = list(view.get("results") or [])
+                sym_for = {"ethereum": "ETH", "bitcoin": "cbBTC"}
+                prices: dict[str, float] = {}
+                for cg_id, info in (_price_cache or {}).items():
+                    sym = sym_for.get(cg_id)
+                    if sym and isinstance(info, dict) and info.get("usd"):
+                        prices[sym] = float(info["usd"])
+                if "ETH" in prices and "WETH" not in prices:
+                    prices["WETH"] = prices["ETH"]
+                commit = float(os.getenv("SWARMFI_COMMITMENT_ETH") or "0.0001")
+                return compute_pnl(results, prices, commitment_eth=commit).to_dict()
+            except Exception as exc:
+                return {"error": str(exc)}
+
+        # Run the truly-async ones in parallel; sync ones complete instantly
+        state, log, scan, agents = await asyncio.gather(
+            _state(), _log(), _scan(), _agents(),
+            return_exceptions=False,
+        )
+        return JSONResponse({
+            "state":  state,
+            "log":    log,
+            "scan":   scan,
+            "agents": agents.get("agents") if isinstance(agents, dict) else [],
+            "axl":    _axl(),
+            "pnl":    _pnl(),
+        })
+
     # ── App ───────────────────────────────────────────────────────────────────
     port = int(os.getenv("DASHBOARD_PORT", "8080"))
     print(f"\n  SwarmFi Dashboard → http://127.0.0.1:{port}\n")

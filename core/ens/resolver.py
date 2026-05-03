@@ -70,6 +70,11 @@ class _LiveENSResolver:
         # only when an on-chain `setText` is actually attempted. Lets the swarm
         # update agent profiles cheaply without paying gas every cycle.
         self._text_cache: dict[str, dict[str, str]] = {}
+        # Resolved-address cache — names → addresses don't change for our use,
+        # and resolving them through web3 is the slowest call in the dashboard.
+        # Without this, /api/agents would block the FastAPI event loop on
+        # every poll and stall every other endpoint.
+        self._addr_cache: dict[str, str | None] = {}
 
     def _cache_text(self, name: str, key: str, value: str) -> None:
         self._text_cache.setdefault(name, {})[key] = value
@@ -83,12 +88,21 @@ class _LiveENSResolver:
         return self._ns
 
     async def resolve_address(self, name: str) -> str | None:
+        # Cache hit returns instantly. Cache misses go through asyncio.to_thread
+        # so the synchronous web3 RPC call doesn't block the FastAPI event loop.
+        if name in self._addr_cache:
+            return self._addr_cache[name]
         try:
+            import asyncio
             ns = self._get_ns()
-            addr = ns.address(name)
-            return str(addr) if addr else None
+            addr = await asyncio.to_thread(ns.address, name)
+            result = str(addr) if addr else None
+            self._addr_cache[name] = result
+            return result
         except Exception as exc:
             log.warning("ENS resolve failed", name=name, error=str(exc))
+            # Cache None too so we don't keep retrying broken names every poll.
+            self._addr_cache[name] = None
             return None
 
     async def get_text_record(self, name: str, key: str) -> str | None:
@@ -98,8 +112,12 @@ class _LiveENSResolver:
         if cached is not None:
             return cached
         try:
+            import asyncio
             ns = self._get_ns()
-            return ns.get_text(name, key)
+            value = await asyncio.to_thread(ns.get_text, name, key)
+            if value:
+                self._text_cache.setdefault(name, {})[key] = value
+            return value
         except Exception as exc:
             log.warning("ENS text record fetch failed", name=name, key=key, error=str(exc))
             return None
